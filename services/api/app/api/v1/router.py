@@ -15,6 +15,7 @@ from app.api.v1.endpoints import (
     community,
     compliance,
     connectors,
+    deployment,
     detection_loop,
     detection_proposals,
     detection_rules,
@@ -43,7 +44,9 @@ from app.api.v1.endpoints import (
     rbac,
     remediation,
     reports,
+    shifts,
     sla,
+    stix_taxii,
     tenants,
     threat_intel,
     translation,
@@ -123,3 +126,12 @@ api_router.include_router(reports.router)
 
 # Air-gap status snapshot for operators — Tier 3.1 (air-gapped certification)
 api_router.include_router(airgap.router)
+
+# STIX/TAXII threat intelligence publishing (Tier 4)
+api_router.include_router(stix_taxii.router)
+
+# Shift handoff and SOC analyst scheduling
+api_router.include_router(shifts.router)
+
+# Deployment configuration and air-gap bundle management
+api_router.include_router(deployment.router)

@@ -22,17 +22,27 @@ from app.connectors.azure_defender import AzureDefenderConnector
 from app.connectors.azure_entra import AzureEntraConnector
 from app.connectors.base import BaseConnector, ConnectorSchema, Field, OAuthHints
 from app.connectors.cloudflare import CloudflareConnector
+from app.connectors.cortex_xdr import CortexXDRConnector
 from app.connectors.crowdstrike import CrowdStrikeConnector
+from app.connectors.duo_security import DuoSecurityConnector
 from app.connectors.elastic import ElasticConnector
 from app.connectors.gcp_cloud_audit import GCPCloudAuditConnector
 from app.connectors.gcp_scc import GCPSCCConnector
 from app.connectors.github import GitHubConnector
 from app.connectors.google_workspace import GoogleWorkspaceConnector
+from app.connectors.jira_connector import JiraConnector
 from app.connectors.m365_audit import M365AuditConnector
 from app.connectors.microsoft_sentinel import MicrosoftSentinelConnector
 from app.connectors.okta import OktaConnector
+from app.connectors.onepassword import OnePasswordConnector
+from app.connectors.proofpoint import ProofpointConnector
+from app.connectors.sentinelone import SentinelOneConnector
+from app.connectors.servicenow import ServiceNowConnector
+from app.connectors.snyk import SnykConnector
 from app.connectors.splunk import SplunkConnector
 from app.connectors.tailscale import TailscaleConnector
+from app.connectors.wiz import WizConnector
+from app.connectors.zscaler import ZscalerConnector
 
 if TYPE_CHECKING:
     pass
@@ -46,17 +56,27 @@ _CONNECTOR_CLASSES: tuple[type[BaseConnector], ...] = (
     AzureDefenderConnector,
     AzureEntraConnector,
     CloudflareConnector,
+    CortexXDRConnector,
     CrowdStrikeConnector,
+    DuoSecurityConnector,
     ElasticConnector,
     GCPCloudAuditConnector,
     GCPSCCConnector,
     GitHubConnector,
     GoogleWorkspaceConnector,
+    JiraConnector,
     M365AuditConnector,
     MicrosoftSentinelConnector,
     OktaConnector,
+    OnePasswordConnector,
+    ProofpointConnector,
+    SentinelOneConnector,
+    ServiceNowConnector,
+    SnykConnector,
     SplunkConnector,
     TailscaleConnector,
+    WizConnector,
+    ZscalerConnector,
 )
 
 
@@ -95,19 +115,29 @@ __all__ = [
     "CONNECTOR_REGISTRY",
     "CloudflareConnector",
     "ConnectorSchema",
+    "CortexXDRConnector",
     "CrowdStrikeConnector",
+    "DuoSecurityConnector",
     "ElasticConnector",
     "Field",
     "GCPCloudAuditConnector",
     "GCPSCCConnector",
     "GitHubConnector",
     "GoogleWorkspaceConnector",
+    "JiraConnector",
     "M365AuditConnector",
     "MicrosoftSentinelConnector",
     "OAuthHints",
     "OktaConnector",
+    "OnePasswordConnector",
+    "ProofpointConnector",
+    "SentinelOneConnector",
+    "ServiceNowConnector",
+    "SnykConnector",
     "SplunkConnector",
     "TailscaleConnector",
+    "WizConnector",
+    "ZscalerConnector",
     "get_connector_class",
     "list_connector_schemas",
 ]

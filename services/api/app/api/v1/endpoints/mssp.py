@@ -625,3 +625,107 @@ async def count_effective_rules_for_child(
 
     counts = await count_effective_rules(db, child_id)
     return EffectiveRuleCountOut(**counts)
+
+
+# ---------------------------------------------------------------------------
+# Cross-tenant dashboard rollups (mock data for UI)
+# ---------------------------------------------------------------------------
+
+
+class MSSPKpiOverview(BaseModel):
+    total_tenants: int
+    total_open_alerts: int
+    total_critical_incidents: int
+    avg_health_score: float
+    avg_mttr_minutes: float
+    sla_breach_count: int
+    connectors_online: int
+    connectors_degraded: int
+
+    class Config:
+        from_attributes = True
+
+
+class ManagedTenantRow(BaseModel):
+    tenant_id: str
+    name: str
+    health_score: float
+    open_alerts: int
+    critical_alerts: int
+    sla_breaches: int
+    connector_status: str
+    last_event_at: str
+
+    class Config:
+        from_attributes = True
+
+
+class CrossTenantIncident(BaseModel):
+    incident_id: str
+    tenant_name: str
+    title: str
+    severity: str
+    status: str
+    created_at: str
+    assignee: str | None = None
+
+    class Config:
+        from_attributes = True
+
+
+_MSSP_TENANTS_MOCK = [
+    ManagedTenantRow(tenant_id="t-acme", name="Acme Corp", health_score=92.4, open_alerts=12, critical_alerts=1, sla_breaches=0, connector_status="healthy", last_event_at="2026-05-07T20:31:00Z"),
+    ManagedTenantRow(tenant_id="t-globex", name="Globex Industries", health_score=78.1, open_alerts=34, critical_alerts=3, sla_breaches=2, connector_status="degraded", last_event_at="2026-05-07T20:28:00Z"),
+    ManagedTenantRow(tenant_id="t-initech", name="Initech LLC", health_score=95.7, open_alerts=5, critical_alerts=0, sla_breaches=0, connector_status="healthy", last_event_at="2026-05-07T20:30:00Z"),
+    ManagedTenantRow(tenant_id="t-wayne", name="Wayne Enterprises", health_score=64.3, open_alerts=58, critical_alerts=7, sla_breaches=4, connector_status="degraded", last_event_at="2026-05-07T20:25:00Z"),
+    ManagedTenantRow(tenant_id="t-stark", name="Stark Solutions", health_score=88.9, open_alerts=9, critical_alerts=1, sla_breaches=0, connector_status="healthy", last_event_at="2026-05-07T20:29:00Z"),
+]
+
+_MSSP_INCIDENTS_MOCK = [
+    CrossTenantIncident(incident_id="INC-4201", tenant_name="Wayne Enterprises", title="Ransomware lateral movement detected", severity="high", status="investigating", created_at="2026-05-07T19:45:00Z", assignee="Jordan Lee"),
+    CrossTenantIncident(incident_id="INC-4198", tenant_name="Globex Industries", title="Suspicious OAuth token abuse in Azure AD", severity="high", status="investigating", created_at="2026-05-07T18:12:00Z", assignee="Morgan Chen"),
+    CrossTenantIncident(incident_id="INC-4195", tenant_name="Wayne Enterprises", title="Data exfiltration via DNS tunneling", severity="high", status="contained", created_at="2026-05-07T16:30:00Z", assignee="Alex Rivera"),
+    CrossTenantIncident(incident_id="INC-4192", tenant_name="Acme Corp", title="Brute-force against VPN gateway", severity="medium", status="resolved", created_at="2026-05-07T14:20:00Z", assignee="Taylor Kim"),
+    CrossTenantIncident(incident_id="INC-4189", tenant_name="Globex Industries", title="Compromised service account in GCP", severity="high", status="investigating", created_at="2026-05-07T12:55:00Z", assignee=None),
+]
+
+
+@router.get("/overview", response_model=MSSPKpiOverview)
+async def mssp_overview(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> MSSPKpiOverview:
+    """Cross-tenant KPI summary for the MSSP parent dashboard."""
+    tenants = _MSSP_TENANTS_MOCK
+    return MSSPKpiOverview(
+        total_tenants=len(tenants),
+        total_open_alerts=sum(t.open_alerts for t in tenants),
+        total_critical_incidents=sum(t.critical_alerts for t in tenants),
+        avg_health_score=round(sum(t.health_score for t in tenants) / len(tenants), 1),
+        avg_mttr_minutes=23.4,
+        sla_breach_count=sum(t.sla_breaches for t in tenants),
+        connectors_online=3,
+        connectors_degraded=2,
+    )
+
+
+@router.get("/tenants", response_model=list[ManagedTenantRow])
+async def list_managed_tenants(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[ManagedTenantRow]:
+    """List managed tenants with health scores for the parent dashboard."""
+    return _MSSP_TENANTS_MOCK
+
+
+@router.get("/incidents", response_model=list[CrossTenantIncident])
+async def list_cross_tenant_incidents(
+    severity: str | None = Query(None, description="Filter: high | medium | low"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[CrossTenantIncident]:
+    """Critical incidents across all managed tenants."""
+    incidents = _MSSP_INCIDENTS_MOCK
+    if severity:
+        incidents = [i for i in incidents if i.severity == severity]
+    return incidents

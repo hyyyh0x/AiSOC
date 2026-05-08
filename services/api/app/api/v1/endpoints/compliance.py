@@ -117,6 +117,29 @@ class FrameworksResponse(BaseModel):
     frameworks: dict[str, dict[str, str]]
 
 
+class ControlItem(BaseModel):
+    control_id: str
+    title: str
+
+
+class ControlsResponse(BaseModel):
+    framework_id: str
+    controls: list[ControlItem]
+
+
+class CollectJobRequest(BaseModel):
+    framework: str = Field(..., description="Compliance framework key e.g. 'SOC2'.")
+    scope: str = Field("full", description="Collection scope: 'full' or 'delta'.")
+
+
+class CollectJobResponse(BaseModel):
+    job_id: uuid.UUID
+    framework: str
+    scope: str
+    status: str
+    queued_at: datetime
+
+
 class CompliancePosture(BaseModel):
     framework: str
     total_evidence: int
@@ -176,6 +199,39 @@ def _row_to_evidence(row: Any) -> EvidenceResponse:
 @router.get("/frameworks", response_model=FrameworksResponse, summary="List frameworks and controls")
 async def list_frameworks() -> FrameworksResponse:
     return FrameworksResponse(frameworks=FRAMEWORKS)
+
+
+@router.get(
+    "/frameworks/{framework_id}/controls",
+    response_model=ControlsResponse,
+    summary="List controls for a framework",
+)
+async def list_framework_controls(framework_id: str) -> ControlsResponse:
+    controls = FRAMEWORKS.get(framework_id)
+    if controls is None:
+        raise HTTPException(status_code=404, detail=f"Framework '{framework_id}' not found.")
+    return ControlsResponse(
+        framework_id=framework_id,
+        controls=[ControlItem(control_id=cid, title=title) for cid, title in controls.items()],
+    )
+
+
+@router.post(
+    "/evidence/collect",
+    response_model=CollectJobResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Trigger evidence collection job",
+)
+async def trigger_evidence_collection(body: CollectJobRequest) -> CollectJobResponse:
+    if body.framework not in FRAMEWORKS:
+        raise HTTPException(status_code=404, detail=f"Framework '{body.framework}' not found.")
+    return CollectJobResponse(
+        job_id=uuid.uuid4(),
+        framework=body.framework,
+        scope=body.scope,
+        status="queued",
+        queued_at=datetime.now(UTC),
+    )
 
 
 @router.post("/evidence", response_model=EvidenceResponse, status_code=status.HTTP_201_CREATED, summary="Collect evidence item")
