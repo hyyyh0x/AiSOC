@@ -5,15 +5,49 @@ AiSOC — open-source AI Security Operations Center (MIT License)
 
 from __future__ import annotations
 
+import logging
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
+from sqlalchemy import text
 
-from app.api.v1.deps import CurrentUser, get_current_user
+from app.api.v1.deps import CurrentUser, DBSession, get_current_user
 from app.services import graph_service
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/graph", tags=["graph"])
+
+
+# ─── Graph backend availability ───────────────────────────────────────────────
+#
+# In the public demo (and in any deployment without a Neo4j sidecar) the
+# knowledge graph backend is unreachable. Rather than 503-ing the whole
+# Attack Path UI in that scenario, we detect connection-class errors and fall
+# back to a relational reconstruction built from the case row itself
+# (alert_ids + mitre_techniques). This keeps the Attack Path tab functional
+# in demos while still surfacing the rich Neo4j path when one is configured.
+
+_GRAPH_OFFLINE_MARKERS: tuple[str, ...] = (
+    "ServiceUnavailable",
+    "AuthError",
+    "Couldn't connect",
+    "Connect call failed",
+    "Connection refused",
+    "Name or service not known",
+    "getaddrinfo",
+    "Cannot resolve address",
+)
+
+
+def _is_graph_unavailable(exc: BaseException) -> bool:
+    """Heuristic: did the failure come from the Neo4j driver being offline?"""
+    cls = type(exc).__name__
+    if cls in {"ServiceUnavailable", "AuthError", "ConfigurationError"}:
+        return True
+    msg = str(exc)
+    return any(marker in msg for marker in _GRAPH_OFFLINE_MARKERS)
 
 
 # ─── Request / Response Schemas ───────────────────────────────────────────────
@@ -100,6 +134,88 @@ class UpsertCaseGraphRequest(BaseModel):
 # ─── Endpoints ────────────────────────────────────────────────────────────────
 
 
+async def _attack_path_from_relational(
+    db: Any,
+    case_id: str,
+) -> dict[str, Any] | None:
+    """Reconstruct an attack path graph from the relational case row.
+
+    Used as a fallback when the Neo4j knowledge graph is unreachable so the
+    Attack Path tab still renders something meaningful in demo deployments
+    that don't ship a graph database. Returns ``None`` if the case can't be
+    located so the caller can decide whether to 404.
+    """
+    row = (
+        await db.execute(
+            text(
+                "SELECT id, title, severity, mitre_techniques, alert_ids "
+                "FROM aisoc_cases WHERE id = CAST(:cid AS UUID)"
+            ).bindparams(cid=case_id)
+        )
+    ).fetchone()
+    if not row:
+        return None
+
+    nodes: list[dict[str, Any]] = []
+    edges: list[dict[str, Any]] = []
+
+    case_node_id = f"case:{row.id}"
+    nodes.append(
+        {
+            "id": case_node_id,
+            "label": "Case",
+            "properties": {
+                "title": row.title,
+                "severity": row.severity,
+            },
+        }
+    )
+
+    # mitre_techniques may be list[str] or list[dict] depending on seed era
+    techniques: list[str] = []
+    for item in row.mitre_techniques or []:
+        if isinstance(item, str):
+            techniques.append(item)
+        elif isinstance(item, dict):
+            tid = item.get("id") or item.get("technique_id")
+            if tid:
+                techniques.append(str(tid))
+
+    technique_node_ids: list[str] = []
+    for tid in techniques:
+        nid = f"technique:{tid}"
+        technique_node_ids.append(nid)
+        nodes.append(
+            {
+                "id": nid,
+                "label": "Technique",
+                "properties": {"technique_id": tid},
+            }
+        )
+
+    for alert_id in row.alert_ids or []:
+        alert_node_id = f"alert:{alert_id}"
+        nodes.append(
+            {
+                "id": alert_node_id,
+                "label": "Alert",
+                "properties": {"alert_id": str(alert_id)},
+            }
+        )
+        edges.append({"source": case_node_id, "target": alert_node_id, "type": "INCLUDES"})
+        # Best-effort attribution: each alert links to all case techniques.
+        for tnid in technique_node_ids:
+            edges.append({"source": alert_node_id, "target": tnid, "type": "USES_TECHNIQUE"})
+
+    return {
+        "case_id": str(row.id),
+        "nodes": nodes,
+        "edges": edges,
+        "node_count": len(nodes),
+        "edge_count": len(edges),
+    }
+
+
 @router.get(
     "/attack-path/{case_id}",
     response_model=AttackPathResponse,
@@ -107,13 +223,20 @@ class UpsertCaseGraphRequest(BaseModel):
 )
 async def get_attack_path(
     case_id: str,
+    db: DBSession,
     max_depth: Annotated[int, Query(ge=1, le=10)] = 6,
     current_user: CurrentUser = Depends(get_current_user),
 ) -> AttackPathResponse:
     """
     Traverse the knowledge graph from a Case node to reconstruct the full
     attack path: Case → Alerts → Hosts/Users → IOCs → MITRE Techniques.
+
+    Falls back to a relational reconstruction (Case → Alerts → Techniques)
+    when the Neo4j graph backend is offline so the demo Attack Path UI
+    keeps working without a graph database deployed.
     """
+    data: dict[str, Any] | None = None
+    graph_offline = False
     try:
         data = await graph_service.get_attack_path(
             case_id=case_id,
@@ -121,16 +244,31 @@ async def get_attack_path(
             max_depth=max_depth,
         )
     except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Graph query failed: {exc}",
-        ) from exc
-
-    if not data["nodes"]:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Case {case_id} not found in graph or has no linked entities",
+        if not _is_graph_unavailable(exc):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=f"Graph query failed: {exc}",
+            ) from exc
+        logger.info(
+            "attack-path: graph backend unavailable, using relational fallback (%s: %s)",
+            type(exc).__name__,
+            exc,
         )
+        graph_offline = True
+
+    if graph_offline or not data or not data.get("nodes"):
+        fallback = await _attack_path_from_relational(db, case_id)
+        if fallback is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Case {case_id} not found",
+            )
+        if not fallback["nodes"]:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Case {case_id} has no linked entities",
+            )
+        return AttackPathResponse(**fallback)
 
     return AttackPathResponse(**data)
 
