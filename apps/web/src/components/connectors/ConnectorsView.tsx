@@ -20,7 +20,11 @@ import useSWR from 'swr';
 import toast from 'react-hot-toast';
 import { clsx } from 'clsx';
 
-import { connectorsApi, type Connector } from '@/lib/api';
+import {
+  connectorsApi,
+  type Connector,
+  type ConnectorHealthSummary,
+} from '@/lib/api';
 import { ErrorState } from '@/components/ui/ErrorState';
 import { AddConnectorModal } from './AddConnectorModal';
 import { ConnectorInstanceList } from './ConnectorInstanceList';
@@ -73,17 +77,55 @@ export function ConnectorsView() {
     { revalidateOnFocus: false, fallbackData: { connectors: DEMO_CONNECTORS } },
   );
 
+  // Health summary is a separate endpoint so the empty/error case is silent —
+  // we just fall back to the locally-derived stats. SWR keys are namespaced so
+  // the two queries don't fight over the cache.
+  const { data: healthSummary } = useSWR<ConnectorHealthSummary | null>(
+    'connectors:health',
+    async () => {
+      try {
+        return await connectorsApi.health();
+      } catch {
+        return null;
+      }
+    },
+    { revalidateOnFocus: false, refreshInterval: 60_000 },
+  );
+
   const connectors: Connector[] = useMemo(() => data?.connectors ?? [], [data]);
 
-  const stats = useMemo(() => {
+  const localStats = useMemo(() => {
     const active = connectors.filter((c) => c.status === 'active').length;
     const errored = connectors.filter((c) => c.status === 'error').length;
     const totalEvents = connectors.reduce(
       (sum, c) => sum + (c.alertCount ?? c.alertsIngested ?? 0),
       0,
     );
-    return { active, errored, totalEvents };
+    const driftedRecently = connectors.filter((c) => {
+      if (!c.lastSchemaDriftAt) return false;
+      return Date.now() - new Date(c.lastSchemaDriftAt).getTime() < 24 * 60 * 60 * 1000;
+    }).length;
+    const totalDropped = connectors.reduce(
+      (sum, c) => sum + (c.eventsDropped ?? 0),
+      0,
+    );
+    return { active, errored, totalEvents, driftedRecently, totalDropped };
   }, [connectors]);
+
+  // Prefer backend-aggregated stats when the API is reachable so the tile
+  // matches the source of truth (the schema-drift sentinel runs server-side).
+  const stats = useMemo(() => {
+    if (healthSummary) {
+      return {
+        active: healthSummary.healthy,
+        errored: healthSummary.unhealthy,
+        totalEvents: healthSummary.totalEventsIngested,
+        driftedRecently: healthSummary.driftedRecently,
+        totalDropped: healthSummary.totalEventsDropped,
+      };
+    }
+    return localStats;
+  }, [healthSummary, localStats]);
 
   // ─── Actions ──────────────────────────────────────────────────────────────
 
@@ -164,26 +206,61 @@ export function ConnectorsView() {
       </div>
 
       {/* Stats — render even with zero connectors so the layout is stable
-          between empty/populated states. */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          between empty/populated states. The drift/dropped tiles only render
+          when the schema-drift sentinel has actually fired so a clean tenant
+          keeps a calm 4-tile layout. */}
+      <div
+        className={clsx(
+          'grid grid-cols-2 gap-3',
+          stats.driftedRecently > 0 || stats.totalDropped > 0
+            ? 'md:grid-cols-6'
+            : 'md:grid-cols-4',
+        )}
+      >
         {[
-          { label: 'Total Connectors', value: connectors.length, color: 'text-blue-400' },
-          { label: 'Active', value: stats.active, color: 'text-green-400' },
-          { label: 'Errors', value: stats.errored, color: 'text-red-400' },
+          {
+            label: 'Total Connectors',
+            value: healthSummary?.total ?? connectors.length,
+            color: 'text-blue-400',
+            show: true,
+          },
+          { label: 'Active', value: stats.active, color: 'text-green-400', show: true },
+          { label: 'Errors', value: stats.errored, color: 'text-red-400', show: true },
           {
             label: 'Events Ingested',
             value: stats.totalEvents.toLocaleString(),
             color: 'text-purple-400',
+            show: true,
           },
-        ].map((stat) => (
-          <div
-            key={stat.label}
-            className="bg-gray-900/60 border border-gray-800/60 rounded-xl p-4"
-          >
-            <p className={clsx('text-2xl font-bold mb-1', stat.color)}>{stat.value}</p>
-            <p className="text-xs text-gray-500">{stat.label}</p>
-          </div>
-        ))}
+          {
+            label: 'Schema Drift (24h)',
+            value: stats.driftedRecently,
+            color: 'text-amber-400',
+            show: stats.driftedRecently > 0,
+            tooltip:
+              healthSummary?.lastDriftAt
+                ? `Most recent drift: ${new Date(healthSummary.lastDriftAt).toLocaleString()}`
+                : undefined,
+          },
+          {
+            label: 'Events Dropped',
+            value: stats.totalDropped.toLocaleString(),
+            color: 'text-cyan-400',
+            show: stats.totalDropped > 0,
+            tooltip: 'Filtered out by pre-ingest pipeline rules',
+          },
+        ]
+          .filter((stat) => stat.show)
+          .map((stat) => (
+            <div
+              key={stat.label}
+              title={stat.tooltip}
+              className="bg-gray-900/60 border border-gray-800/60 rounded-xl p-4"
+            >
+              <p className={clsx('text-2xl font-bold mb-1', stat.color)}>{stat.value}</p>
+              <p className="text-xs text-gray-500">{stat.label}</p>
+            </div>
+          ))}
       </div>
 
       {/* Body */}

@@ -43,6 +43,10 @@ def _make_instance(
         last_sync=None,
         events_ingested=0,
         error_count=0,
+        events_dropped=0,
+        schema_fingerprint=None,
+        last_schema_drift_at=None,
+        last_drift_details=None,
     )
 
 
@@ -111,6 +115,236 @@ async def test_poll_one_happy_path(monkeypatch):
     assert pushed["events"] == [{"normalized": True, "raw": "event"}]
     assert fake_engine.success_calls == [inst.id]
     assert fake_engine.failure_calls == []
+
+
+# ---------------------------------------------------------------------------
+# Schema-Drift Sentinel + filter-rules pipeline integration
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_poll_one_filter_rules_drop_events(monkeypatch):
+    """Pre-ingest filter rules should drop matching events and bump the
+    drop counter passed to record_poll_success without ever shipping the
+    dropped events to ingest."""
+    inst = _make_instance(
+        connector_type="fake_connector",
+        connector_config={
+            "poll_interval_seconds": 60,
+            "filter_rules": [
+                {"field": "severity", "op": "eq", "value": "info", "action": "drop"},
+            ],
+        },
+    )
+
+    fake_connector = MagicMock()
+    fake_connector.fetch_alerts = AsyncMock(
+        return_value=[
+            {"severity": "info", "id": "drop-me"},
+            {"severity": "high", "id": "keep-me"},
+        ]
+    )
+    fake_connector.normalize = MagicMock(side_effect=lambda e: e)
+
+    monkeypatch.setattr(
+        "app.scheduler.CONNECTOR_REGISTRY",
+        {"fake_connector": MagicMock(return_value=fake_connector)},
+    )
+
+    fake_engine = _FakeEngine([inst])
+    fake_ingest = _FakeIngestClient(accepted=1)
+
+    captured_success: dict[str, Any] = {}
+
+    async def capture_record_poll_success(
+        conn: Any,
+        connector_id: uuid.UUID,
+        *,
+        events_added: int,
+        events_dropped: int = 0,
+        schema_fingerprint: str | None = None,
+    ) -> None:
+        conn.engine.success_calls.append(connector_id)
+        captured_success["events_added"] = events_added
+        captured_success["events_dropped"] = events_dropped
+        captured_success["schema_fingerprint"] = schema_fingerprint
+
+    monkeypatch.setattr("app.scheduler.record_poll_success", capture_record_poll_success)
+
+    scheduler = ConnectorScheduler(engine=fake_engine, ingest_client=fake_ingest, vault=_FakeVault())
+    await scheduler._poll_one(connector_id=inst.id)
+
+    # Only the high-severity event should reach ingest.
+    pushed = fake_ingest.last_payload
+    assert pushed is not None
+    assert pushed["events"] == [{"severity": "high", "id": "keep-me"}]
+    assert captured_success["events_dropped"] == 1
+    assert captured_success["events_added"] == 1
+    assert captured_success["schema_fingerprint"] is not None
+
+
+@pytest.mark.asyncio
+async def test_poll_one_first_poll_records_fingerprint_no_drift(monkeypatch):
+    """First poll on a connector with no baseline should record the new
+    fingerprint via record_poll_success but NOT trigger record_schema_drift."""
+    inst = _make_instance(
+        connector_type="fake_connector",
+        connector_config={"poll_interval_seconds": 60},
+    )
+    # Baseline is None on the ConnectorInstance.
+
+    fake_connector = MagicMock()
+    fake_connector.fetch_alerts = AsyncMock(return_value=[{"severity": "high", "host": "h1"}])
+    fake_connector.normalize = MagicMock(side_effect=lambda e: e)
+
+    monkeypatch.setattr(
+        "app.scheduler.CONNECTOR_REGISTRY",
+        {"fake_connector": MagicMock(return_value=fake_connector)},
+    )
+
+    fake_engine = _FakeEngine([inst])
+    scheduler = ConnectorScheduler(
+        engine=fake_engine,
+        ingest_client=_FakeIngestClient(accepted=1),
+        vault=_FakeVault(),
+    )
+    await scheduler._poll_one(connector_id=inst.id)
+
+    assert fake_engine.success_calls == [inst.id]
+    # No drift expected on first poll.
+    assert fake_engine.drift_calls == []
+
+
+@pytest.mark.asyncio
+async def test_poll_one_detects_schema_drift(monkeypatch):
+    """When the new fingerprint differs from the stored baseline,
+    record_schema_drift should be called with details describing the
+    change before record_poll_success is invoked."""
+    # Synthesize a baseline fingerprint that differs from what the
+    # current poll will produce.
+    from app.pipeline.fingerprint import compute_fingerprint as cf
+
+    stale_fp = cf([{"severity": "high"}])  # baseline: only one field
+    inst = _make_instance(
+        connector_type="fake_connector",
+        connector_config={"poll_interval_seconds": 60},
+    )
+    inst.schema_fingerprint = stale_fp
+
+    fake_connector = MagicMock()
+    fake_connector.fetch_alerts = AsyncMock(
+        return_value=[{"severity": "high", "host": "h1", "new_field": "x"}]
+    )
+    fake_connector.normalize = MagicMock(side_effect=lambda e: e)
+
+    monkeypatch.setattr(
+        "app.scheduler.CONNECTOR_REGISTRY",
+        {"fake_connector": MagicMock(return_value=fake_connector)},
+    )
+
+    fake_engine = _FakeEngine([inst])
+    scheduler = ConnectorScheduler(
+        engine=fake_engine,
+        ingest_client=_FakeIngestClient(accepted=1),
+        vault=_FakeVault(),
+    )
+    await scheduler._poll_one(connector_id=inst.id)
+
+    assert fake_engine.success_calls == [inst.id]
+    assert len(fake_engine.drift_calls) == 1
+    drift = fake_engine.drift_calls[0]
+    assert drift["connector_id"] == inst.id
+    assert drift["fingerprint"] != stale_fp
+    assert "added" in drift["details"]
+    assert "previous_fingerprint" in drift["details"]
+    assert drift["details"]["previous_fingerprint"] == stale_fp
+
+
+@pytest.mark.asyncio
+async def test_poll_one_stable_schema_no_drift(monkeypatch):
+    """If the new fingerprint matches the stored baseline, the row's
+    fingerprint is rewritten via success but no drift event fires."""
+    from app.pipeline.fingerprint import compute_fingerprint as cf
+
+    events = [{"severity": "high", "host": "h1"}]
+    baseline_fp = cf(events)
+    inst = _make_instance(
+        connector_type="fake_connector",
+        connector_config={"poll_interval_seconds": 60},
+    )
+    inst.schema_fingerprint = baseline_fp
+
+    fake_connector = MagicMock()
+    fake_connector.fetch_alerts = AsyncMock(return_value=events)
+    fake_connector.normalize = MagicMock(side_effect=lambda e: e)
+
+    monkeypatch.setattr(
+        "app.scheduler.CONNECTOR_REGISTRY",
+        {"fake_connector": MagicMock(return_value=fake_connector)},
+    )
+
+    fake_engine = _FakeEngine([inst])
+    scheduler = ConnectorScheduler(
+        engine=fake_engine,
+        ingest_client=_FakeIngestClient(accepted=1),
+        vault=_FakeVault(),
+    )
+    await scheduler._poll_one(connector_id=inst.id)
+
+    assert fake_engine.success_calls == [inst.id]
+    assert fake_engine.drift_calls == []
+
+
+@pytest.mark.asyncio
+async def test_poll_one_quiet_hour_does_not_clobber_fingerprint(monkeypatch):
+    """If a poll returns zero events the fingerprint is None and we should
+    NOT overwrite the baseline in the row (ConnectorInstance fingerprint
+    stays as-is)."""
+    from app.pipeline.fingerprint import compute_fingerprint as cf
+
+    baseline_fp = cf([{"severity": "high", "host": "h1"}])
+    inst = _make_instance(
+        connector_type="fake_connector",
+        connector_config={"poll_interval_seconds": 60},
+    )
+    inst.schema_fingerprint = baseline_fp
+
+    fake_connector = MagicMock()
+    fake_connector.fetch_alerts = AsyncMock(return_value=[])
+    fake_connector.normalize = MagicMock(side_effect=lambda e: e)
+
+    monkeypatch.setattr(
+        "app.scheduler.CONNECTOR_REGISTRY",
+        {"fake_connector": MagicMock(return_value=fake_connector)},
+    )
+
+    captured_success: dict[str, Any] = {}
+
+    async def capture_record_poll_success(
+        conn: Any,
+        connector_id: uuid.UUID,
+        *,
+        events_added: int,
+        events_dropped: int = 0,
+        schema_fingerprint: str | None = None,
+    ) -> None:
+        conn.engine.success_calls.append(connector_id)
+        captured_success["schema_fingerprint"] = schema_fingerprint
+
+    monkeypatch.setattr("app.scheduler.record_poll_success", capture_record_poll_success)
+
+    fake_engine = _FakeEngine([inst])
+    scheduler = ConnectorScheduler(
+        engine=fake_engine,
+        ingest_client=_FakeIngestClient(accepted=0),
+        vault=_FakeVault(),
+    )
+    await scheduler._poll_one(connector_id=inst.id)
+
+    # Empty batch → fingerprint should be None so the DB layer leaves the
+    # baseline alone.
+    assert captured_success["schema_fingerprint"] is None
+    assert fake_engine.drift_calls == []
 
 
 # ---------------------------------------------------------------------------
@@ -338,6 +572,7 @@ class _FakeEngine:
         self.instances = list(instances)
         self.success_calls: list[uuid.UUID] = []
         self.failure_calls: list[uuid.UUID] = []
+        self.drift_calls: list[dict[str, Any]] = []
 
     def begin(self) -> _FakeAsyncContextManager:
         return _FakeAsyncContextManager(_FakeConnection(self))
@@ -389,12 +624,31 @@ def _patch_repo_calls(monkeypatch):
     async def fake_fetch_enabled_connectors(conn: Any) -> list[ConnectorInstance]:
         return list(conn.engine.instances)
 
-    async def fake_record_poll_success(conn: Any, connector_id: uuid.UUID, *, events_added: int) -> None:
+    async def fake_record_poll_success(
+        conn: Any,
+        connector_id: uuid.UUID,
+        *,
+        events_added: int,
+        events_dropped: int = 0,
+        schema_fingerprint: str | None = None,
+    ) -> None:
         conn.engine.success_calls.append(connector_id)
 
     async def fake_record_poll_failure(conn: Any, connector_id: uuid.UUID) -> None:
         conn.engine.failure_calls.append(connector_id)
 
+    async def fake_record_schema_drift(
+        conn: Any,
+        connector_id: uuid.UUID,
+        *,
+        fingerprint: str,
+        details: dict[str, Any],
+    ) -> None:
+        getattr(conn.engine, "drift_calls", []).append(
+            {"connector_id": connector_id, "fingerprint": fingerprint, "details": details}
+        )
+
     monkeypatch.setattr("app.scheduler.fetch_enabled_connectors", fake_fetch_enabled_connectors)
     monkeypatch.setattr("app.scheduler.record_poll_success", fake_record_poll_success)
     monkeypatch.setattr("app.scheduler.record_poll_failure", fake_record_poll_failure)
+    monkeypatch.setattr("app.scheduler.record_schema_drift", fake_record_schema_drift)

@@ -103,6 +103,28 @@ function ConnectorCard({
 }: ConnectorCardProps) {
   const statusCfg = STATUS_CONFIG[connector.status] ?? STATUS_CONFIG.configuring;
   const alertCount = connector.alertCount ?? connector.alertsIngested ?? 0;
+  const eventsDropped = connector.eventsDropped ?? 0;
+  const driftAt = connector.lastSchemaDriftAt;
+  const drift = connector.lastDriftDetails;
+  const driftAdded = drift?.added?.length ?? 0;
+  const driftRemoved = drift?.removed?.length ?? 0;
+  const driftRecent =
+    driftAt &&
+    Date.now() - new Date(driftAt).getTime() < 24 * 60 * 60 * 1000;
+
+  // Compose the drift tooltip lazily — only the schema-drift sentinel emits a
+  // diff so we keep the UI quiet when nothing has changed.
+  const driftTooltip = drift
+    ? [
+        driftAdded > 0 ? `+${driftAdded} new field${driftAdded === 1 ? '' : 's'}` : null,
+        driftRemoved > 0
+          ? `-${driftRemoved} removed field${driftRemoved === 1 ? '' : 's'}`
+          : null,
+        driftAt ? `at ${new Date(driftAt).toLocaleString()}` : null,
+      ]
+        .filter(Boolean)
+        .join(' • ')
+    : '';
 
   return (
     <div className="bg-gray-900/60 border border-gray-800/60 rounded-xl p-5 hover:border-gray-700/60 transition-colors flex flex-col">
@@ -130,6 +152,57 @@ function ConnectorCard({
 
       {connector.description && (
         <p className="text-xs text-gray-500 mb-4 line-clamp-2">{connector.description}</p>
+      )}
+
+      {/* Schema-drift + filter-drop badges. Only render when there is
+          something to surface so a healthy connector keeps its clean look. */}
+      {(driftAt || eventsDropped > 0) && (
+        <div className="flex flex-wrap gap-1.5 mb-3">
+          {driftAt && (
+            <span
+              title={driftTooltip}
+              className={clsx(
+                'text-[10px] px-2 py-0.5 rounded-full border inline-flex items-center gap-1',
+                driftRecent
+                  ? 'text-amber-300 bg-amber-500/10 border-amber-500/30'
+                  : 'text-gray-400 bg-gray-800/60 border-gray-700/50',
+              )}
+            >
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 9v2m0 4h.01M5 19h14a2 2 0 001.74-2.99l-7-12a2 2 0 00-3.48 0l-7 12A2 2 0 005 19z"
+                />
+              </svg>
+              {driftRecent ? 'Schema drift' : 'Schema changed'}
+              {(driftAdded > 0 || driftRemoved > 0) && (
+                <span className="opacity-80">
+                  {driftAdded > 0 && `+${driftAdded}`}
+                  {driftAdded > 0 && driftRemoved > 0 && '/'}
+                  {driftRemoved > 0 && `-${driftRemoved}`}
+                </span>
+              )}
+            </span>
+          )}
+          {eventsDropped > 0 && (
+            <span
+              title={`${eventsDropped.toLocaleString()} event${eventsDropped === 1 ? '' : 's'} dropped by pre-ingest filter rules`}
+              className="text-[10px] px-2 py-0.5 rounded-full border inline-flex items-center gap-1 text-blue-300 bg-blue-500/10 border-blue-500/30"
+            >
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"
+                />
+              </svg>
+              {eventsDropped.toLocaleString()} dropped
+            </span>
+          )}
+        </div>
       )}
 
       <div className="grid grid-cols-2 gap-2 mb-4">

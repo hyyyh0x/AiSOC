@@ -761,6 +761,18 @@ export interface Connector {
   description?: string;
   createdAt?: string;
   updatedAt?: string;
+  /** SHA-256 fingerprint of the most recent normalized event schema. */
+  schemaFingerprint?: string;
+  /** Timestamp of the most recent schema-drift event (null/undef if never). */
+  lastSchemaDriftAt?: string;
+  /** Human-readable diff for the most recent drift event. */
+  lastDriftDetails?: {
+    added?: string[];
+    removed?: string[];
+    previous_fingerprint?: string;
+  };
+  /** Cumulative count of events the pre-ingest filter dropped. */
+  eventsDropped?: number;
 }
 
 export interface ConnectorsResponse {
@@ -830,6 +842,32 @@ interface BackendConnectorResponse {
   tags: string[];
   created_at: string;
   updated_at: string;
+  schema_fingerprint?: string | null;
+  last_schema_drift_at?: string | null;
+  last_drift_details?: {
+    added?: string[];
+    removed?: string[];
+    previous_fingerprint?: string;
+  } | null;
+  events_dropped?: number | null;
+}
+
+/** Aggregated health summary for the connectors fleet (a single tenant). */
+export interface ConnectorHealthSummary {
+  total: number;
+  healthy: number;
+  unhealthy: number;
+  unknown: number;
+  /** Connectors whose schema has ever drifted. */
+  drifted: number;
+  /** Connectors whose schema drifted in the last 24h. */
+  driftedRecently: number;
+  /** Most-recent drift timestamp across the fleet. */
+  lastDriftAt?: string;
+  /** Cumulative events ingested across all enabled connectors. */
+  totalEventsIngested: number;
+  /** Cumulative events dropped by pre-ingest filter rules. */
+  totalEventsDropped: number;
 }
 
 /**
@@ -870,6 +908,10 @@ function mapBackendConnector(row: BackendConnectorResponse): Connector {
     alertsIngested: row.events_ingested,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    schemaFingerprint: row.schema_fingerprint ?? undefined,
+    lastSchemaDriftAt: row.last_schema_drift_at ?? undefined,
+    lastDriftDetails: row.last_drift_details ?? undefined,
+    eventsDropped: row.events_dropped ?? 0,
   };
 }
 
@@ -960,6 +1002,39 @@ export const connectorsApi = {
 
   delete: (id: string) =>
     request<void>(`/api/v1/connectors/${id}`, { method: 'DELETE' }),
+
+  /**
+   * Aggregated health summary for the connectors fleet.
+   *
+   * Surfaces healthy/degraded/error counts, schema-drift events seen in the
+   * last 24h, and the cumulative count of events the pre-ingest filter
+   * dropped. Used by the Connectors page header strip and the new
+   * "Connector Health" widget on the dashboard.
+   */
+  health: async (): Promise<ConnectorHealthSummary> => {
+    const raw = await request<{
+      total: number;
+      healthy: number;
+      unhealthy: number;
+      unknown: number;
+      drifted: number;
+      drifted_recently: number;
+      last_drift_at: string | null;
+      total_events_ingested: number;
+      total_events_dropped: number;
+    }>('/api/v1/connectors/health');
+    return {
+      total: raw.total,
+      healthy: raw.healthy,
+      unhealthy: raw.unhealthy,
+      unknown: raw.unknown,
+      drifted: raw.drifted,
+      driftedRecently: raw.drifted_recently,
+      lastDriftAt: raw.last_drift_at ?? undefined,
+      totalEventsIngested: raw.total_events_ingested,
+      totalEventsDropped: raw.total_events_dropped,
+    };
+  },
 };
 
 // ─── Threat Intel ─────────────────────────────────────────────────────────────
@@ -1169,6 +1244,41 @@ export interface MitreCoverage {
   generatedAt: string;
 }
 
+/**
+ * Case-scoped attack path graph as returned by the Attack-Path Investigation
+ * Agent backend (`/api/v1/graph/attack-path/{case_id}`). Distinct from the
+ * tenant-level `AttackGraph` overview because the backend payload schema is
+ * leaner: each node carries a `properties` dict and edges carry a relationship
+ * `type` instead of label/weight metadata.
+ */
+export interface CaseAttackPathNode {
+  id: string;
+  label: string;
+  properties: Record<string, unknown>;
+}
+
+export interface CaseAttackPathEdge {
+  source: string;
+  target: string;
+  type: string;
+}
+
+export interface CaseAttackPath {
+  caseId: string;
+  nodes: CaseAttackPathNode[];
+  edges: CaseAttackPathEdge[];
+  nodeCount: number;
+  edgeCount: number;
+}
+
+interface BackendCaseAttackPathResponse {
+  case_id: string;
+  nodes: CaseAttackPathNode[];
+  edges: CaseAttackPathEdge[];
+  node_count: number;
+  edge_count: number;
+}
+
 export const graphApi = {
   getOverview: (filters: { entity?: string; depth?: number } = {}) =>
     request<AttackGraph>('/api/v1/graph', {
@@ -1188,6 +1298,37 @@ export const graphApi = {
       `/api/v1/graph/blast-radius`,
       { params: { entity } },
     ),
+
+  /**
+   * Fetch the reconstructed attack-path graph for a single case.
+   * Backed by the Attack-Path Investigation Agent endpoint
+   * `/api/v1/graph/attack-path/{case_id}`.
+   * Returns `null` when the case has no linked graph entities (404 from API).
+   */
+  getCaseAttackPath: async (
+    caseId: string,
+    options: { maxDepth?: number } = {},
+  ): Promise<CaseAttackPath | null> => {
+    try {
+      const raw = await request<BackendCaseAttackPathResponse>(
+        `/api/v1/graph/attack-path/${encodeURIComponent(caseId)}`,
+        {
+          params: options.maxDepth ? { max_depth: options.maxDepth } : {},
+        },
+      );
+      return {
+        caseId: raw.case_id,
+        nodes: raw.nodes ?? [],
+        edges: raw.edges ?? [],
+        nodeCount: raw.node_count ?? 0,
+        edgeCount: raw.edge_count ?? 0,
+      };
+    } catch (err) {
+      const apiErr = err as { status?: number };
+      if (apiErr?.status === 404) return null;
+      throw err;
+    }
+  },
 };
 
 // ─── Detection Rules ─────────────────────────────────────────────────────────

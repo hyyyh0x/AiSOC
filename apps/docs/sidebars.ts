@@ -14,6 +14,15 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: "category",
+      label: "Features",
+      items: [
+        "features/connector-health",
+        "features/data-pipeline",
+        "features/attack-path-agent",
+      ],
+    },
+    {
+      type: "category",
       label: "Connectors",
       items: [
         "connectors/index",

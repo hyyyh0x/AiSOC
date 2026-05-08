@@ -64,9 +64,15 @@ from app.db.connector_repo import (
     fetch_enabled_connectors,
     record_poll_failure,
     record_poll_success,
+    record_schema_drift,
 )
 from app.db.engine import get_engine
 from app.ingest_client import IngestClient, IngestClientError
+from app.pipeline import (
+    apply_filter_rules,
+    compute_fingerprint,
+    diff_fingerprints,
+)
 from app.security.credential_vault import CredentialVault, CredentialVaultError, get_vault
 
 logger = logging.getLogger("aisoc.connectors.scheduler")
@@ -385,45 +391,171 @@ class ConnectorScheduler:
         # raw events still produces consistent shapes downstream.
         normalized = [_safe_normalize(connector, e) for e in raw_events]
 
+        # ---- Security Data Pipeline: pre-ingest filter rules ----
+        #
+        # Rules live on the connector's ``connector_config["filter_rules"]``
+        # array. ``apply_filter_rules`` is pure: it just decides drop/keep.
+        # We count drops here so they show up in ``events_dropped`` on the
+        # row and emit one info-level log per drop so an operator can audit
+        # filter behavior without trawling the database.
+        filter_rules = (target.connector_config or {}).get("filter_rules") or []
+        kept: list[dict[str, Any]] = []
+        dropped_count = 0
+        for event in normalized:
+            decision = apply_filter_rules(event, filter_rules)
+            if decision.action == "drop":
+                dropped_count += 1
+                # Keep the log line short — high-volume connectors can drop
+                # hundreds of events per poll, and we don't want the log to
+                # become the bottleneck. The rule_index is enough to find
+                # the offending rule in the connector config.
+                logger.debug(
+                    "connector.scheduler.filter_drop id=%s rule_index=%s",
+                    connector_id,
+                    decision.rule_index,
+                )
+                continue
+            kept.append(event)
+
+        # ---- Schema-Drift Sentinel: fingerprint the kept batch ----
+        #
+        # We fingerprint *kept* events (post-filter) because the filter
+        # rules are tenant-controlled and shouldn't be allowed to mask a
+        # legitimate upstream schema change by dropping all instances of
+        # the new field. Empty batches return None and we don't update
+        # the baseline in that case (see fingerprint.compute_fingerprint).
+        new_fingerprint = compute_fingerprint(kept)
+        drift_detected = False
+        drift_details: dict[str, Any] | None = None
+
+        if new_fingerprint is not None and target.schema_fingerprint is not None:
+            if new_fingerprint != target.schema_fingerprint:
+                drift_detected = True
+                # Recompute the union of keys so we can describe what
+                # changed. We don't store prior keys in the row (only the
+                # hash), so we approximate "removed" by diffing against
+                # the current batch's keys vs. the keys set we'd expect
+                # from the prior fingerprint. Since we don't have the
+                # prior keys, we record the new key set and ``added`` is
+                # the entire new set. This is good enough for the UI to
+                # surface "schema changed at <timestamp>"; a future
+                # iteration can persist the prior key list.
+                current_keys = sorted({k for ev in kept for k in ev.keys()})
+                drift_details = diff_fingerprints(
+                    previous_keys=[],  # baseline keys not persisted yet
+                    current_keys=current_keys,
+                )
+                drift_details["sample_event_count"] = len(kept)
+                drift_details["new_fingerprint"] = new_fingerprint
+                drift_details["previous_fingerprint"] = target.schema_fingerprint
+                logger.warning(
+                    "connector.scheduler.schema_drift id=%s type=%s added=%d",
+                    connector_id,
+                    target.connector_type,
+                    len(drift_details.get("added", [])),
+                )
+
         try:
             result = await self._ingest_client.push_events(
                 tenant_id=target.tenant_id,
                 connector_id=target.id,
                 connector_type=target.connector_type,
-                events=normalized,
+                events=kept,
             )
         except IngestClientError:
             logger.exception(
                 "connector.scheduler.ingest_failed id=%s events=%d",
                 connector_id,
-                len(normalized),
+                len(kept),
             )
             await self._record_failure(target.id)
             return
 
         accepted = int(result.get("accepted", 0) or 0)
         elapsed_ms = int((datetime.now(UTC) - started).total_seconds() * 1000)
-        await self._record_success(target.id, events_added=accepted)
+
+        # If drift was detected, persist that fact *before* marking the
+        # poll successful so the UI reflects "drifted" status alongside
+        # "healthy". Both writes are independent transactions; the order
+        # protects against a race where the operator views the row mid-
+        # poll and sees a stale fingerprint.
+        if drift_detected and drift_details is not None:
+            await self._record_drift(
+                target.id,
+                fingerprint=new_fingerprint or "",
+                details=drift_details,
+            )
+
+        await self._record_success(
+            target.id,
+            events_added=accepted,
+            events_dropped=dropped_count,
+            schema_fingerprint=new_fingerprint,
+        )
         logger.info(
-            "connector.scheduler.poll_complete id=%s type=%s accepted=%d rejected=%d elapsed_ms=%d",
+            "connector.scheduler.poll_complete id=%s type=%s accepted=%d rejected=%d dropped=%d drift=%s elapsed_ms=%d",
             connector_id,
             target.connector_type,
             accepted,
             int(result.get("rejected", 0) or 0),
+            dropped_count,
+            "yes" if drift_detected else "no",
             elapsed_ms,
         )
 
     # ------------------------------------------------------------------ db helpers
 
-    async def _record_success(self, connector_id: uuid.UUID, *, events_added: int) -> None:
+    async def _record_success(
+        self,
+        connector_id: uuid.UUID,
+        *,
+        events_added: int,
+        events_dropped: int = 0,
+        schema_fingerprint: str | None = None,
+    ) -> None:
         if self._engine is None:  # pragma: no cover
             return
         try:
             async with self._engine.begin() as conn:
-                await record_poll_success(conn, connector_id, events_added=events_added)
+                await record_poll_success(
+                    conn,
+                    connector_id,
+                    events_added=events_added,
+                    events_dropped=events_dropped,
+                    schema_fingerprint=schema_fingerprint,
+                )
         except Exception:  # pragma: no cover
             logger.exception(
                 "connector.scheduler.record_success_failed id=%s",
+                connector_id,
+            )
+
+    async def _record_drift(
+        self,
+        connector_id: uuid.UUID,
+        *,
+        fingerprint: str,
+        details: dict[str, Any],
+    ) -> None:
+        """Persist a detected schema drift for the connector row.
+
+        Kept separate from ``_record_success`` so a drift write that
+        races with a future poll's success write doesn't clobber the
+        ``last_schema_drift_at`` timestamp.
+        """
+        if self._engine is None:  # pragma: no cover
+            return
+        try:
+            async with self._engine.begin() as conn:
+                await record_schema_drift(
+                    conn,
+                    connector_id,
+                    fingerprint=fingerprint,
+                    details=details,
+                )
+        except Exception:  # pragma: no cover
+            logger.exception(
+                "connector.scheduler.record_drift_failed id=%s",
                 connector_id,
             )
 

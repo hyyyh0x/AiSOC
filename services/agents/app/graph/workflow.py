@@ -1,9 +1,11 @@
 """
-LangGraph workflow: wires Auto-Triage → Triage → Enrichment → Investigation agents.
+LangGraph workflow: wires Auto-Triage → Triage → Enrichment → Investigation
+→ Attack-Path agents.
 
 Auto-triage runs first.  If the LLM classifies the alert as FP/benign with
 confidence above the auto-close threshold the graph terminates early.
-Otherwise the alert flows through the full manual pipeline.
+Otherwise the alert flows through the full manual pipeline, ending with the
+graph-aware Attack-Path agent that walks Neo4j to compute blast radius.
 """
 
 from __future__ import annotations
@@ -11,6 +13,7 @@ from __future__ import annotations
 import structlog
 from langgraph.graph import END, StateGraph
 
+from app.agents.attack_path_agent import run_attack_path
 from app.agents.auto_triage_agent import run_auto_triage
 from app.agents.enrichment_agent import run_enrichment
 from app.agents.investigation_agent import run_investigation
@@ -55,6 +58,12 @@ async def investigation_node(state: dict) -> dict:
     return s.to_dict()
 
 
+async def attack_path_node(state: dict) -> dict:
+    s = _from_dict(state)
+    s = await run_attack_path(s)
+    return s.to_dict()
+
+
 def _should_continue(state: dict) -> str:
     """Conditional edge: stop if max iterations reached or status is terminal."""
     s = _from_dict(state)
@@ -78,7 +87,8 @@ def build_investigation_graph() -> StateGraph:
 
     Flow:
         auto_triage ─┬─ (high-confidence FP/benign) ──► END
-                      └─ (else) ──► triage ──► enrichment ──► investigation ──► END
+                      └─ (else) ──► triage ──► enrichment ──► investigation
+                                          ──► attack_path ──► END
     """
     graph = StateGraph(dict)
 
@@ -86,6 +96,7 @@ def build_investigation_graph() -> StateGraph:
     graph.add_node("triage", triage_node)
     graph.add_node("enrichment", enrichment_node)
     graph.add_node("investigation", investigation_node)
+    graph.add_node("attack_path", attack_path_node)
 
     graph.set_entry_point("auto_triage")
 
@@ -96,7 +107,8 @@ def build_investigation_graph() -> StateGraph:
     )
     graph.add_edge("triage", "enrichment")
     graph.add_edge("enrichment", "investigation")
-    graph.add_edge("investigation", END)
+    graph.add_edge("investigation", "attack_path")
+    graph.add_edge("attack_path", END)
 
     return graph.compile()
 

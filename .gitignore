@@ -85,3 +85,6 @@ PR_TRIAGE.md
 # Docusaurus generated cache (apps/docs)
 apps/docs/.docusaurus/
 apps/docs/build/
+
+# Local QA artifacts (screenshots from manual UI checks)
+apps/web/.qa-screenshots/

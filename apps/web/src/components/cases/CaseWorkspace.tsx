@@ -24,7 +24,9 @@ import { format, formatDistanceToNow } from 'date-fns';
 import toast from 'react-hot-toast';
 import {
   casesApi,
+  graphApi,
   type Case,
+  type CaseAttackPath,
   type CaseSeverity,
   type CaseStatus,
   type CaseTask,
@@ -36,9 +38,20 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { InvestigationLedger } from './InvestigationLedger';
 import { ContextualActions } from '@/components/copilot/ContextualActions';
 
-type WorkspaceTab = 'overview' | 'investigation' | 'ledger' | 'report';
+type WorkspaceTab =
+  | 'overview'
+  | 'investigation'
+  | 'attack-path'
+  | 'ledger'
+  | 'report';
 
-const VALID_TABS: readonly WorkspaceTab[] = ['overview', 'investigation', 'ledger', 'report'];
+const VALID_TABS: readonly WorkspaceTab[] = [
+  'overview',
+  'investigation',
+  'attack-path',
+  'ledger',
+  'report',
+];
 
 function isWorkspaceTab(value: string | null): value is WorkspaceTab {
   return value !== null && (VALID_TABS as readonly string[]).includes(value);
@@ -701,7 +714,7 @@ export function CaseWorkspace({ caseId }: { caseId: string }) {
 
       {/* Tabs */}
       <div className="flex items-center gap-1 border-b border-slate-800/70 text-xs">
-        {(['overview', 'investigation', 'ledger', 'report'] as WorkspaceTab[]).map((tab) => (
+        {VALID_TABS.map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -725,6 +738,16 @@ export function CaseWorkspace({ caseId }: { caseId: string }) {
                   audit
                 </span>
               </span>
+            ) : tab === 'attack-path' ? (
+              <span className="inline-flex items-center gap-1">
+                Attack path
+                <span
+                  className="rounded bg-orange-500/15 px-1 py-0.5 text-[8px] font-bold uppercase tracking-wider text-orange-300 ring-1 ring-orange-500/30"
+                  title="Reconstructed attack graph from the Attack-Path Investigation Agent"
+                >
+                  graph
+                </span>
+              </span>
             ) : (
               tab
             )}
@@ -743,6 +766,11 @@ export function CaseWorkspace({ caseId }: { caseId: string }) {
           liveSteps={liveSteps}
           onViewReport={() => setActiveTab('report')}
         />
+      )}
+
+      {/* Attack path tab — reconstructed graph for this case */}
+      {activeTab === 'attack-path' && (
+        <AttackPathPanel caseId={caseRecord.id} />
       )}
 
       {/* Ledger tab — persistent, replayable agent decision log */}
@@ -1094,6 +1122,148 @@ function InvestigationPanel({
           </summary>
           <AuditLogPreview log={auditLog} />
         </details>
+      )}
+    </div>
+  );
+}
+
+// ─── Attack path panel ────────────────────────────────────────────────────────
+
+/**
+ * AttackPathPanel renders the case-scoped attack-path graph reconstructed by
+ * the Attack-Path Investigation Agent. Cases without graph entities (404 from
+ * the backend) fall back to an explanatory empty state so the analyst knows
+ * the agent is wired up but simply has no graph context yet.
+ */
+function AttackPathPanel({ caseId }: { caseId: string }) {
+  const { data, error, isLoading } = useSWR<CaseAttackPath | null>(
+    `case:${caseId}:attack-path`,
+    () => graphApi.getCaseAttackPath(caseId, { maxDepth: 4 }),
+    { revalidateOnFocus: false },
+  );
+
+  if (isLoading) {
+    return (
+      <div className="space-y-3">
+        <Skeleton className="h-6 w-48" />
+        <Skeleton className="h-32 w-full" />
+        <Skeleton className="h-32 w-full" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <ErrorState
+        title="Failed to load attack path"
+        description={error instanceof Error ? error.message : 'Unknown error'}
+      />
+    );
+  }
+
+  if (!data || data.nodeCount === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-slate-700/60 bg-slate-900/30 py-16 text-center">
+        <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-orange-500/10 ring-1 ring-orange-500/30">
+          <svg className="h-5 w-5 text-orange-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+          </svg>
+        </div>
+        <p className="text-sm font-medium text-slate-300">No attack path yet</p>
+        <p className="mt-1 max-w-md text-xs text-slate-500">
+          The Attack-Path Investigation Agent reconstructs lateral movement and blast radius from linked alerts and graph entities. Run an investigation or link more alerts to surface a path here.
+        </p>
+      </div>
+    );
+  }
+
+  // Bucket nodes by entity type so the panel reads as &ldquo;hosts /
+  // identities / processes&rdquo; rather than an undifferentiated soup.
+  const nodesByType = data.nodes.reduce<Record<string, CaseAttackPath['nodes']>>(
+    (acc, node) => {
+      const type = (node.properties?.type as string) ?? node.label ?? 'entity';
+      (acc[type] ||= []).push(node);
+      return acc;
+    },
+    {},
+  );
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-sm font-medium text-slate-200">Reconstructed attack path</h3>
+          <p className="text-xs text-slate-500">
+            {data.nodeCount} node{data.nodeCount === 1 ? '' : 's'} · {data.edgeCount} edge{data.edgeCount === 1 ? '' : 's'} · depth ≤ 4
+          </p>
+        </div>
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-orange-500/10 px-2.5 py-0.5 text-xs font-medium text-orange-300 ring-1 ring-orange-500/30">
+          attack path
+        </span>
+      </div>
+
+      {/* Entities grouped by type — keeps the panel scannable even when the
+          backend returns dense graphs (10s of nodes is normal). */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        {Object.entries(nodesByType).map(([type, nodes]) => (
+          <div
+            key={type}
+            className="rounded-xl border border-slate-800/80 bg-slate-900/40 p-4"
+          >
+            <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+              {type} ({nodes.length})
+            </h4>
+            <ul className="space-y-1.5">
+              {nodes.slice(0, 8).map((node) => (
+                <li
+                  key={node.id}
+                  className="flex items-start gap-2 text-xs"
+                >
+                  <span className="mt-0.5 inline-block h-1.5 w-1.5 rounded-full bg-orange-400/60 shrink-0" />
+                  <div className="min-w-0">
+                    <p className="truncate font-mono text-slate-300">{node.label || node.id}</p>
+                    {typeof node.properties?.risk_score === 'number' && (
+                      <p className="text-[10px] text-slate-500">
+                        risk score: {(node.properties.risk_score as number).toFixed(2)}
+                      </p>
+                    )}
+                  </div>
+                </li>
+              ))}
+              {nodes.length > 8 && (
+                <li className="text-[10px] italic text-slate-500">
+                  +{nodes.length - 8} more
+                </li>
+              )}
+            </ul>
+          </div>
+        ))}
+      </div>
+
+      {/* Edges — show the relationship verbs because that's what differentiates
+          a benign topology snapshot from an actual attack chain. */}
+      {data.edges.length > 0 && (
+        <div className="rounded-xl border border-slate-800/80 bg-slate-900/40 p-4">
+          <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+            Relationships
+          </h4>
+          <ul className="space-y-1">
+            {data.edges.slice(0, 12).map((edge, i) => (
+              <li key={`${edge.source}-${edge.target}-${i}`} className="flex items-center gap-2 text-[11px] font-mono">
+                <span className="truncate text-slate-300">{edge.source}</span>
+                <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-orange-300">
+                  {edge.type}
+                </span>
+                <span className="truncate text-slate-300">{edge.target}</span>
+              </li>
+            ))}
+            {data.edges.length > 12 && (
+              <li className="text-[10px] italic text-slate-500">
+                +{data.edges.length - 12} more relationships
+              </li>
+            )}
+          </ul>
+        </div>
       )}
     </div>
   );

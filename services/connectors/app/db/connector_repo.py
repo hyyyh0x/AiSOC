@@ -29,6 +29,7 @@ from sqlalchemy import (
     MetaData,
     String,
     Table,
+    Text,
     select,
     update,
 )
@@ -54,7 +55,13 @@ connectors_table = Table(
     Column("last_health_check", DateTime(timezone=True)),
     Column("last_sync", DateTime(timezone=True)),
     Column("events_ingested", Integer, nullable=False),
+    Column("events_dropped", Integer, nullable=False),
     Column("error_count", Integer, nullable=False),
+    # Schema-drift sentinel columns (migration 026). Nullable: a brand-new
+    # connector hasn't established a fingerprint baseline yet.
+    Column("schema_fingerprint", Text),
+    Column("last_schema_drift_at", DateTime(timezone=True)),
+    Column("last_drift_details", JSONB),
     Column("tags", JSON, nullable=False),
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),
@@ -80,7 +87,14 @@ class ConnectorInstance:
     health_status: str
     last_sync: datetime | None
     events_ingested: int
+    events_dropped: int
     error_count: int
+    # Drift-sentinel state. ``schema_fingerprint`` is the SHA-256 of the
+    # sorted, deduped top-level field names from the previous successful
+    # poll. NULL on first poll.
+    schema_fingerprint: str | None
+    last_schema_drift_at: datetime | None
+    last_drift_details: dict[str, Any] | None
 
 
 async def fetch_enabled_connectors(connection: Any) -> list[ConnectorInstance]:
@@ -101,7 +115,11 @@ async def fetch_enabled_connectors(connection: Any) -> list[ConnectorInstance]:
         connectors_table.c.health_status,
         connectors_table.c.last_sync,
         connectors_table.c.events_ingested,
+        connectors_table.c.events_dropped,
         connectors_table.c.error_count,
+        connectors_table.c.schema_fingerprint,
+        connectors_table.c.last_schema_drift_at,
+        connectors_table.c.last_drift_details,
     ).where(connectors_table.c.is_enabled.is_(True))
 
     result = await connection.execute(stmt)
@@ -118,7 +136,11 @@ async def fetch_enabled_connectors(connection: Any) -> list[ConnectorInstance]:
             health_status=row.health_status,
             last_sync=row.last_sync,
             events_ingested=row.events_ingested,
+            events_dropped=row.events_dropped,
             error_count=row.error_count,
+            schema_fingerprint=row.schema_fingerprint,
+            last_schema_drift_at=row.last_schema_drift_at,
+            last_drift_details=row.last_drift_details,
         )
         for row in rows
     ]
@@ -129,19 +151,31 @@ async def record_poll_success(
     connector_id: uuid.UUID,
     *,
     events_added: int,
+    events_dropped: int = 0,
+    schema_fingerprint: str | None = None,
 ) -> None:
-    """Update last_sync, increment events_ingested, mark healthy."""
+    """Update last_sync, increment counters, mark healthy.
+
+    If ``schema_fingerprint`` is provided it is written to the row; the
+    drift bookkeeping (``last_schema_drift_at`` / ``last_drift_details``)
+    is updated by ``record_schema_drift`` so the two callers don't race
+    on the same UPDATE.
+    """
     now = datetime.now(UTC)
+    values: dict[str, Any] = {
+        "last_sync": now,
+        "last_health_check": now,
+        "health_status": "healthy",
+        "events_ingested": connectors_table.c.events_ingested + events_added,
+        "events_dropped": connectors_table.c.events_dropped + events_dropped,
+        "updated_at": now,
+    }
+    if schema_fingerprint is not None:
+        values["schema_fingerprint"] = schema_fingerprint
     stmt = (
         update(connectors_table)
         .where(connectors_table.c.id == connector_id)
-        .values(
-            last_sync=now,
-            last_health_check=now,
-            health_status="healthy",
-            events_ingested=connectors_table.c.events_ingested + events_added,
-            updated_at=now,
-        )
+        .values(**values)
     )
     await connection.execute(stmt)
 
@@ -165,6 +199,33 @@ async def record_poll_failure(
     await connection.execute(stmt)
 
 
+async def record_schema_drift(
+    connection: Any,
+    connector_id: uuid.UUID,
+    *,
+    fingerprint: str,
+    details: dict[str, Any],
+) -> None:
+    """Record a confirmed schema drift event.
+
+    Called by the scheduler when the new poll's fingerprint differs from
+    the stored baseline. Writes the new fingerprint, drift timestamp and
+    details so the dashboard can surface "what changed" to operators.
+    """
+    now = datetime.now(UTC)
+    stmt = (
+        update(connectors_table)
+        .where(connectors_table.c.id == connector_id)
+        .values(
+            schema_fingerprint=fingerprint,
+            last_schema_drift_at=now,
+            last_drift_details=details,
+            updated_at=now,
+        )
+    )
+    await connection.execute(stmt)
+
+
 __all__ = [
     "ConnectorInstance",
     "connectors_table",
@@ -172,4 +233,5 @@ __all__ = [
     "metadata",
     "record_poll_failure",
     "record_poll_success",
+    "record_schema_drift",
 ]

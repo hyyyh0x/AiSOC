@@ -12,6 +12,14 @@ const FEATURES = [
     ),
   },
   {
+    title: 'Tiered retention pipeline',
+    description:
+      'Declarative pre-ingest filter rules drop noisy events at the connector edge before they hit Kafka — cutting indexing cost without losing forensic depth. Every drop is counted per-connector and surfaced in the health summary.',
+    icon: (
+      <path d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+    ),
+  },
+  {
     title: 'Three-tier agent memory',
     description:
       'Session (in-process LRU), working (Redis, 24 h TTL), and institutional (PostgreSQL + pgvector, permanent). Agents carry context across tool calls, cases, and sessions; institutional knowledge survives restarts.',
@@ -76,6 +84,14 @@ const FEATURES = [
     ),
   },
   {
+    title: 'Attack-path investigation agent',
+    description:
+      'A dedicated LangGraph agent reconstructs lateral movement and blast radius from the live graph, summarises high-risk pivots, and proposes contained response actions (host isolation, account disable) gated by autonomy guardrails.',
+    icon: (
+      <path d="M13 10V3L4 14h7v7l9-11h-7z" />
+    ),
+  },
+  {
     title: 'SOC metrics dashboard',
     description:
       'Live MTTD, MTTR, False Positive Rate, and alert/case volumes (rolling 7 d) with an ATT&CK technique heatmap. Analyst-override feedback updates FPR automatically; corrections flow into institutional memory.',
@@ -89,6 +105,14 @@ const FEATURES = [
       'Click-and-connect catalog (Defender XDR, Azure, GCP, M365, GitHub, CrowdStrike, Splunk, Sentinel, Okta, and more). Secrets encrypted with CredentialVault (Fernet AES-128-CBC + HMAC-SHA256).',
     icon: (
       <path d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18" />
+    ),
+  },
+  {
+    title: 'Schema-drift sentinel',
+    description:
+      'Every poll fingerprints the upstream payload shape and diffs it against the last known-good schema. New, removed, or renamed fields surface in the connector card and aggregate health tile before they silently break detections.',
+    icon: (
+      <path d="M12 9v2m0 4h.01M5 19h14a2 2 0 001.74-2.99l-7-12a2 2 0 00-3.48 0l-7 12A2 2 0 005 19z" />
     ),
   },
   {

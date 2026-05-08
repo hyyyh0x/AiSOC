@@ -105,12 +105,39 @@ class ConnectorResponse(BaseModel):
     last_health_check: datetime | None
     last_sync: datetime | None
     events_ingested: int
+    events_dropped: int = 0
     error_count: int
+    # Schema-drift sentinel state surfaced to the wizard so the
+    # connector card can show "schema changed at <ts>" without a
+    # second round-trip. Both fields are nullable for connectors
+    # that haven't drifted (the steady-state expectation).
+    schema_fingerprint: str | None = None
+    last_schema_drift_at: datetime | None = None
+    last_drift_details: dict[str, Any] | None = None
     tags: list
     created_at: datetime
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class ConnectorHealthSummary(BaseModel):
+    """Tenant-wide rollup of connector health for the dashboard.
+
+    The web console shows a small "Connector Health" tile at the top
+    of the Connectors page; this endpoint feeds that tile so the UI
+    can render it without iterating the full list client-side.
+    """
+
+    total: int
+    healthy: int
+    unhealthy: int
+    unknown: int
+    drifted: int
+    drifted_recently: int  # last 24 h
+    last_drift_at: datetime | None
+    total_events_ingested: int
+    total_events_dropped: int
 
 
 class CreateConnectorRequest(BaseModel):
@@ -302,6 +329,73 @@ async def list_catalog(
     """
     schemas = await _fetch_catalog()
     return {"connectors": schemas}
+
+
+# ------------------------------------------------------------------ health summary
+
+
+@router.get("/health", response_model=ConnectorHealthSummary)
+async def connector_health_summary(
+    current_user: Annotated[AuthUser, Depends(require_permission("connectors:read"))],
+    db: DBSession,
+) -> ConnectorHealthSummary:
+    """Aggregate per-tenant connector health for the dashboard tile.
+
+    Single SELECT scan; we deliberately do *not* group in SQL because
+    Postgres' filter expressions over a few hundred rows are negligible
+    compared to the round-trip, and the resulting Python is a lot easier
+    to read than five COUNT(*) FILTER clauses.
+    """
+    result = await db.execute(
+        select(Connector).where(Connector.tenant_id == current_user.tenant_id)
+    )
+    connectors = list(result.scalars().all())
+
+    now = datetime.now(UTC)
+    twenty_four_hours_ago_seconds = 24 * 60 * 60
+
+    total = len(connectors)
+    healthy = 0
+    unhealthy = 0
+    unknown = 0
+    drifted = 0
+    drifted_recently = 0
+    last_drift_at: datetime | None = None
+    total_events_ingested = 0
+    total_events_dropped = 0
+
+    for c in connectors:
+        if c.health_status == "healthy":
+            healthy += 1
+        elif c.health_status == "unhealthy":
+            unhealthy += 1
+        else:
+            unknown += 1
+
+        total_events_ingested += int(c.events_ingested or 0)
+        total_events_dropped += int(getattr(c, "events_dropped", 0) or 0)
+
+        drift_at = getattr(c, "last_schema_drift_at", None)
+        if drift_at is not None:
+            drifted += 1
+            if last_drift_at is None or drift_at > last_drift_at:
+                last_drift_at = drift_at
+            # Compare in seconds so we don't depend on timedelta arithmetic
+            # being available on every datetime variant Postgres can return.
+            if (now - drift_at).total_seconds() <= twenty_four_hours_ago_seconds:
+                drifted_recently += 1
+
+    return ConnectorHealthSummary(
+        total=total,
+        healthy=healthy,
+        unhealthy=unhealthy,
+        unknown=unknown,
+        drifted=drifted,
+        drifted_recently=drifted_recently,
+        last_drift_at=last_drift_at,
+        total_events_ingested=total_events_ingested,
+        total_events_dropped=total_events_dropped,
+    )
 
 
 # ------------------------------------------------------------------ pre-save test
