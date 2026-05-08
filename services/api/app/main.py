@@ -66,6 +66,22 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             # Tables already exist or another worker beat us to it — safe to ignore in dev.
             logger.warning("create_all skipped (likely already applied)", error=str(exc))
 
+    # Apply raw-SQL migrations (services/api/migrations/*.sql). These cover
+    # tables that aren't part of the SQLAlchemy ORM (aisoc_cases, MSSP, EASM,
+    # connector schema-drift, etc.). The runner is idempotent: each migration
+    # is tracked in aisoc_schema_migrations so it only runs once. We exclude
+    # production for now since prod is expected to have a managed migration
+    # pipeline; demo / dev environments bootstrap themselves on boot so the
+    # first deploy of a new feature is usable immediately.
+    if settings.ENVIRONMENT in _DEV_ENVIRONMENTS:
+        try:
+            from app.scripts.run_migrations import main as run_sql_migrations  # noqa: PLC0415
+
+            await run_sql_migrations()
+            logger.info("SQL migrations applied", environment=settings.ENVIRONMENT)
+        except Exception as exc:
+            logger.warning("SQL migration run failed", error=str(exc))
+
     # Initialize Neo4j graph layer
     try:
         await init_neo4j()

@@ -7,12 +7,17 @@ import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import bcrypt
 from jose import jwt
-from passlib.context import CryptContext
 
 from app.core.config import settings
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# bcrypt has a hard 72-byte limit on inputs. We mirror what passlib used to do
+# but without the version-introspection that breaks against newer bcrypt
+# releases (passlib 1.7.4 reads `_bcrypt.__about__.__version__`, which was
+# removed in bcrypt 4.x and causes a misleading 72-byte error to surface even
+# for short passwords).
+_BCRYPT_MAX_BYTES = 72
 
 ROLE_PERMISSIONS: dict[str, list[str]] = {
     "platform_admin": ["*"],
@@ -98,12 +103,22 @@ ROLE_PERMISSIONS: dict[str, list[str]] = {
 }
 
 
+def _to_bcrypt_input(password: str) -> bytes:
+    encoded = password.encode("utf-8")
+    if len(encoded) > _BCRYPT_MAX_BYTES:
+        encoded = encoded[:_BCRYPT_MAX_BYTES]
+    return encoded
+
+
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
+    try:
+        return bcrypt.checkpw(_to_bcrypt_input(plain_password), hashed_password.encode("utf-8"))
+    except (ValueError, TypeError):
+        return False
 
 
 def get_password_hash(password: str) -> str:
-    return pwd_context.hash(password)
+    return bcrypt.hashpw(_to_bcrypt_input(password), bcrypt.gensalt()).decode("utf-8")
 
 
 def create_access_token(data: dict[str, Any], expires_delta: timedelta | None = None) -> str:
