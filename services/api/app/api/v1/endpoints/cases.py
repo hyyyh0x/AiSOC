@@ -149,6 +149,34 @@ class EvidenceReport(BaseModel):
 # ────────────────────────────────────────────────────────────────────────────
 
 
+def _coerce_mitre(values: Any) -> list[str]:
+    """Normalize mitre_techniques to a list of technique IDs.
+
+    Accepts list[str] or list[dict] like ``{"id": "T1041", "name": "..."}``.
+    Older seed fixtures stored objects; newer ones store flat IDs.
+    """
+    if not values:
+        return []
+    out: list[str] = []
+    for item in values:
+        if isinstance(item, str):
+            out.append(item)
+        elif isinstance(item, dict):
+            tid = item.get("id") or item.get("technique_id") or item.get("name")
+            if tid:
+                out.append(str(tid))
+    return out
+
+
+def _coerce_tags(value: Any) -> dict[str, Any]:
+    """aisoc_cases.tags is JSONB which may be an object or array."""
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, list):
+        return {"labels": [str(v) for v in value]}
+    return {}
+
+
 def _row_to_case(row: Any) -> CaseResponse:
     return CaseResponse(
         id=row.id,
@@ -157,7 +185,7 @@ def _row_to_case(row: Any) -> CaseResponse:
         severity=row.severity,
         status=row.status,
         assignee=row.assignee,
-        mitre_techniques=list(row.mitre_techniques or []),
+        mitre_techniques=_coerce_mitre(row.mitre_techniques),
         alert_ids=list(row.alert_ids or []),
         observable_graph=dict(row.observable_graph or {}),
         evidence_chain=list(row.evidence_chain or []),
@@ -169,7 +197,7 @@ def _row_to_case(row: Any) -> CaseResponse:
         created_at=row.created_at,
         updated_at=row.updated_at,
         created_by=row.created_by,
-        tags=dict(row.tags or {}),
+        tags=_coerce_tags(row.tags),
         sla_due_at=row.sla_due_at,
     )
 
@@ -415,7 +443,7 @@ async def evidence_report(case_id: uuid.UUID, db: DBSession, user: AuthUser) -> 
         severity=row.severity,
         status=row.status,
         alert_count=len(row.alert_ids or []),
-        mitre_techniques=list(row.mitre_techniques or []),
+        mitre_techniques=_coerce_mitre(row.mitre_techniques),
         compliance_frameworks=list(row.compliance_frameworks or []),
         evidence_chain=list(row.evidence_chain or []),
         generated_at=datetime.now(UTC),
