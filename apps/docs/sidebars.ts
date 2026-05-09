@@ -10,7 +10,12 @@ const sidebars: SidebarsConfig = {
     {
       type: "category",
       label: "Core Concepts",
-      items: ["concepts/cases", "concepts/playbooks", "concepts/detections"],
+      items: [
+        "concepts/capabilities",
+        "concepts/cases",
+        "concepts/playbooks",
+        "concepts/detections",
+      ],
     },
     {
       type: "category",
@@ -49,9 +54,13 @@ const sidebars: SidebarsConfig = {
       type: "category",
       label: "Operations",
       items: [
+        "operations/security",
         "operations/credentials",
         "operations/airgap",
-        "operations/sonali-consultation-questions",
+        "operations/upgrades",
+        "operations/troubleshooting",
+        "operations/faq",
+        "operations/adoption-questions",
       ],
     },
     {
@@ -84,6 +93,7 @@ const sidebars: SidebarsConfig = {
       label: "Contributing",
       items: ["contributing/dev-setup", "contributing/guidelines"],
     },
+    "glossary",
   ],
 };
 

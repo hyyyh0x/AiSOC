@@ -224,13 +224,36 @@ permissions / scopes / role assignments and a troubleshooting section.
 
 ## Next Steps
 
+### Learn the platform
+
 - [Architecture deep-dive](./architecture)
+- [Capabilities](./concepts/capabilities) — full feature inventory by tier
+- [Glossary](./glossary) — security and AiSOC-specific terminology
+- [FAQ](./operations/faq) — common questions about scope, deployment, data, and licensing
+
+### Connect data and detections
+
 - [Connect your first source](./connectors)
-- [Operations: Credentials](./operations/credentials) — vault, key rotation, hosted-OAuth roadmap
-- [Concepts: Cases & Investigation Ledger](./concepts/cases)
 - [Write your first detection rule](./concepts/detections)
 - [Build a playbook](./concepts/playbooks)
+- [Concepts: Cases & Investigation Ledger](./concepts/cases)
+
+### Extend AiSOC
+
 - [Install a community plugin](./plugins/overview)
 - [Connect your IDE via MCP](./integrations/mcp)
 - [Run the public eval harness](./benchmark)
+
+### Operate in production
+
 - [Deploy to Kubernetes](./deployment/kubernetes)
+- [Operations: Credentials](./operations/credentials) — vault, key rotation, hosted-OAuth roadmap
+- [Security model](./operations/security) — RBAC, MFA/SSO, audit logs, multi-tenant isolation
+- [Upgrades & versioning](./operations/upgrades) — release cadence, deprecation policy, in-place upgrades
+- [Troubleshooting](./operations/troubleshooting) — common errors, log locations, recovery
+
+### Got stuck?
+
+If `pnpm aisoc:demo` failed, healthchecks went red, or migrations didn't run cleanly,
+the [troubleshooting page](./operations/troubleshooting) has runbooks for the most
+common failure modes.

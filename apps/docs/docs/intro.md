@@ -75,20 +75,45 @@ See the full [Architecture](./architecture) page for the detailed service map an
 
 ## Quick Links
 
+### Get started
+
 - [Quick Start](./quickstart) — `pnpm aisoc:demo`, under 5 minutes to a live investigation
-- [Connectors](./connectors) — click-and-connect catalog with 26 cloud / SaaS / SIEM / EDR / IAM / VCS / network sources
-- [Operations: Credentials](./operations/credentials) — `CredentialVault` threat model, key rotation, hosted-OAuth roadmap
-- [Public eval harness](./benchmark) — alert reduction (real measurement) plus MITRE / completeness / response-quality substrate self-consistency gates
-- [MCP Integration](./integrations/mcp) — connect Claude / Cursor / Continue / Cody
 - [Architecture](./architecture) — service map and data flow
-- [API Reference (REST)](./api/rest) — OpenAPI 3.1 spec
-- [API Reference (GraphQL)](./api/graphql) — schema and queries
-- [API Reference (WebSocket)](./api/websocket) — real-time events
+- [Glossary](./glossary) — security and AiSOC-specific terminology in one place
+- [FAQ](./operations/faq) — common questions about scope, deployment, data, and licensing
+
+### Core concepts
+
+- [Detections](./concepts/detections)
+- [Playbooks](./concepts/playbooks) — anatomy, triggers, conditions, approvals
+- [Cases](./concepts/cases) — including the Investigation Ledger
+- [Capabilities](./concepts/capabilities) — full feature inventory by tier
+
+### Connect & extend
+
+- [Connectors](./connectors) — click-and-connect catalog with 26 cloud / SaaS / SIEM / EDR / IAM / VCS / network sources
+- [MCP Integration](./integrations/mcp) — connect Claude / Cursor / Continue / Cody
 - [Plugin SDK (Python)](./plugins/python-sdk)
 - [Plugin SDK (Go)](./plugins/go-sdk)
-- [Concepts: Detections](./concepts/detections)
-- [Concepts: Playbooks](./concepts/playbooks)
-- [Concepts: Cases](./concepts/cases) — including the Investigation Ledger
+
+### APIs
+
+- [REST API](./api/rest) — OpenAPI 3.1 spec
+- [GraphQL API](./api/graphql) — schema and queries
+- [WebSocket API](./api/websocket) — real-time events
+
+### Operate
+
 - [Deployment: Docker](./deployment/docker)
 - [Deployment: Kubernetes](./deployment/kubernetes)
 - [Deployment: Environment Variables](./deployment/env-vars)
+- [Security model](./operations/security) — RBAC, MFA/SSO, audit logs, multi-tenant isolation
+- [Credentials](./operations/credentials) — `CredentialVault` threat model and key rotation
+- [Upgrades & versioning](./operations/upgrades) — release cadence, deprecation policy, in-place upgrades
+- [Troubleshooting](./operations/troubleshooting) — common errors, log locations, recovery
+
+### Quality & community
+
+- [Public eval harness](./benchmark) — alert reduction plus MITRE / completeness / response-quality gates
+- [Contributing](./contributing/dev-setup) — local dev setup
+- [Contribution guidelines](./contributing/guidelines) — branching, PR template, testing, plan files
