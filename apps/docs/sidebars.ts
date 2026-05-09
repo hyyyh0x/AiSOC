@@ -52,6 +52,11 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: "category",
+      label: "Detections",
+      items: ["detections/coverage"],
+    },
+    {
+      type: "category",
       label: "Operations",
       items: [
         "operations/security",

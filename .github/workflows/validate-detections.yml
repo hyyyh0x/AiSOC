@@ -31,6 +31,9 @@ jobs:
       - name: Run detection rule validator (strict fixture replay)
         run: python3 scripts/validate_detections.py --strict-fixtures
 
+      - name: Verify curated v1.0 coverage manifest
+        run: python3 scripts/curate_detections.py --check
+
       - name: Count rules by severity
         if: always()
         run: |
