@@ -2369,6 +2369,26 @@ export const detectionProposalsApi = {
       body: JSON.stringify(body),
     }),
 
+  // Triggers a synchronous run of `scripts/run_evals.py` server-side and
+  // returns the JSON report plus runner metadata. The rule editor calls this
+  // from "Propose for review" so the eval gate runs before the proposal is
+  // visible for approval. Subprocess takes ~5–15s on the 200-incident corpus.
+  runEval: (body?: {
+    use_active_baseline?: boolean;
+    max_regression_pp?: number;
+    timeout_seconds?: number;
+  }) =>
+    request<{
+      report: Record<string, unknown>;
+      exit_code: number;
+      duration_seconds: number;
+      ran_at: string;
+      script: string;
+    }>('/api/v1/detection-proposals/run-eval', {
+      method: 'POST',
+      body: JSON.stringify(body ?? {}),
+    }),
+
   decide: (
     id: string,
     body: { decision: 'approve' | 'reject'; comment?: string | null },

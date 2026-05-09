@@ -9,7 +9,9 @@ import { clsx } from 'clsx';
 import toast from 'react-hot-toast';
 import {
   detectionApi,
+  detectionProposalsApi,
   type DetectionLanguage,
+  type DetectionProposal,
   type DetectionRule,
   type HuntResult,
 } from '@/lib/api';
@@ -131,6 +133,26 @@ export function RuleEditor({ mode, ruleId }: RuleEditorProps) {
     preview: HuntResult[];
   } | null>(null);
   const [saving, setSaving] = useState(false);
+
+  // Detection-as-Code: propose-for-review state. Wave-2 buyer-value path.
+  // The author writes a rule here, hits "Propose for review", and the backend
+  // runs `scripts/run_evals.py` against the active baseline. The verdict is
+  // attached to the proposal and the regression gate (≥ 1pp MITRE accuracy
+  // drop) decides whether the proposal can be promoted to a live rule.
+  const [proposing, setProposing] = useState(false);
+  const [proposalStage, setProposalStage] = useState<
+    'idle' | 'creating' | 'evaluating' | 'attaching' | 'done'
+  >('idle');
+  const [evalVerdict, setEvalVerdict] = useState<{
+    proposalId: string;
+    passed: boolean;
+    candidateMitre?: number;
+    baselineMitre?: number;
+    dropPp?: number;
+    maxRegressionPp?: number;
+    durationSeconds?: number;
+    ranAt?: string;
+  } | null>(null);
 
   // Hydrate form when data arrives
   useEffect(() => {
@@ -289,6 +311,119 @@ export function RuleEditor({ mode, ruleId }: RuleEditorProps) {
     }
   };
 
+  // Detection-as-Code propose-for-review flow:
+  //   1) POST /detection-proposals          → register the candidate
+  //   2) POST /detection-proposals/run-eval → run scripts/run_evals.py
+  //   3) POST /detection-proposals/:id/eval → attach verdict (server gates)
+  // We surface a verdict card on the editor and link to the queue at
+  // /detection/proposals so a reviewer can take it from approved → promoted.
+  // If any leg fails we keep the proposal in 'proposed' state and surface
+  // the error — partial state is fine because the queue ignores stale eval
+  // attachments.
+  const handlePropose = async () => {
+    if (!name.trim()) {
+      toast.error('Rule name is required to propose a change');
+      return;
+    }
+    if (!body.trim()) {
+      toast.error('Rule body is empty');
+      return;
+    }
+    setProposing(true);
+    setEvalVerdict(null);
+    setProposalStage('creating');
+    try {
+      // 1. Create the proposal — base_rule_id links it to the rule being
+      //    edited so the reviewer queue can show "modified vs. live".
+      const created = await detectionProposalsApi.create({
+        name: name.trim(),
+        description: description.trim() || null,
+        rule_language: language,
+        rule_body: body,
+        // The rule editor has no category picker today; the proposal API
+        // requires a non-empty string, so default to a sensible value.
+        category: 'detection',
+        severity,
+        confidence: 0.7,
+        mitre_techniques: mitre,
+        mitre_tactics: [],
+        tags,
+        base_rule_id: mode === 'edit' && ruleId ? ruleId : null,
+      });
+
+      // 2. Run the offline eval harness server-side. This blocks the request
+      //    for ~5–15s on the 200-incident corpus, which is acceptable for an
+      //    explicit "Propose" click.
+      setProposalStage('evaluating');
+      let runResult: Awaited<ReturnType<typeof detectionProposalsApi.runEval>>;
+      try {
+        runResult = await detectionProposalsApi.runEval({
+          use_active_baseline: true,
+          max_regression_pp: 1.0,
+          timeout_seconds: 240,
+        });
+      } catch (evalErr) {
+        console.error('Eval harness call failed', evalErr);
+        toast.error(
+          'Proposal created, but the eval harness could not run. A reviewer can attach a report manually.',
+        );
+        setEvalVerdict({
+          proposalId: created.id,
+          passed: false,
+        });
+        setProposalStage('done');
+        // Best effort: still navigate to the proposal queue so the user
+        // can see it queued.
+        router.push('/detection/proposals');
+        return;
+      }
+
+      // 3. Attach the verdict — backend authoritatively decides eval_passed
+      //    vs. eval_failed using its 1pp regression rule against the active
+      //    baseline. We pass the same threshold the runner used so the
+      //    server's recorded `max_regression_pp` matches.
+      setProposalStage('attaching');
+      const decided = await detectionProposalsApi.attachEval(created.id, {
+        eval_report: runResult.report,
+        max_regression_pp: 1.0,
+      });
+
+      const verdict = decided.eval_result as DetectionProposal['eval_result'];
+      const passed = decided.status === 'eval_passed';
+      setEvalVerdict({
+        proposalId: decided.id,
+        passed,
+        candidateMitre:
+          (verdict as { candidate?: { mitre_accuracy?: number } } | undefined)
+            ?.candidate?.mitre_accuracy,
+        baselineMitre:
+          (verdict as { baseline?: { mitre_accuracy?: number } } | undefined)
+            ?.baseline?.mitre_accuracy,
+        dropPp: (verdict as { drop_pp?: number } | undefined)?.drop_pp,
+        maxRegressionPp:
+          (verdict as { max_regression_pp?: number } | undefined)
+            ?.max_regression_pp,
+        durationSeconds: runResult.duration_seconds,
+        ranAt: runResult.ran_at,
+      });
+      setProposalStage('done');
+
+      if (passed) {
+        toast.success('Proposal passed eval — ready for review');
+      } else {
+        toast.error(
+          'Proposal failed eval — MITRE accuracy regression vs. active baseline',
+        );
+      }
+    } catch (err) {
+      console.error('Propose-for-review failed', err);
+      toast.error('Could not create proposal — backend unreachable');
+      setProposalStage('idle');
+    } finally {
+      setProposing(false);
+    }
+  };
+
   // ─── Render ────────────────────────────────────────────────────────────────
 
   return (
@@ -317,6 +452,29 @@ export function RuleEditor({ mode, ruleId }: RuleEditorProps) {
               Delete
             </button>
           )}
+          {/*
+            "Propose for review" runs the eval-gated DaC flow. The button is
+            distinct from "Save" because it doesn't write to the live rule —
+            it creates a queued proposal that a reviewer promotes after the
+            eval verdict + a human approval. We show it on both create and
+            edit so authors can iterate on a draft and only submit once the
+            harness passes.
+          */}
+          <button
+            onClick={handlePropose}
+            disabled={proposing || saving}
+            className={clsx(
+              'inline-flex items-center gap-2 rounded-md border border-blue-500/40 bg-blue-500/10 px-3 py-1.5 text-sm font-medium text-blue-200 shadow-sm transition-colors',
+              proposing || saving ? 'opacity-60' : 'hover:bg-blue-500/20',
+            )}
+            title="Open a proposal that the eval harness must pass before promotion"
+          >
+            {proposalStage === 'creating' && 'Creating proposal…'}
+            {proposalStage === 'evaluating' && 'Running eval harness…'}
+            {proposalStage === 'attaching' && 'Attaching verdict…'}
+            {(proposalStage === 'idle' || proposalStage === 'done') &&
+              'Propose for review'}
+          </button>
           <button
             onClick={handleSave}
             disabled={saving}
@@ -329,6 +487,93 @@ export function RuleEditor({ mode, ruleId }: RuleEditorProps) {
           </button>
         </div>
       </div>
+
+      {/*
+        Eval verdict card — surfaces the outcome of the most recent
+        "Propose for review" click against the active 200-incident
+        baseline. We compare candidate vs. baseline MITRE accuracy and
+        the absolute drop in percentage points, mirroring the gate in
+        services/api/app/api/v1/endpoints/detection_proposals.py. Reviewer
+        actions (approve / reject / promote) live on /detection/proposals,
+        which we deep-link to once we have a proposal id.
+      */}
+      {evalVerdict && (
+        <div
+          className={clsx(
+            'rounded-lg border px-4 py-3 text-sm',
+            evalVerdict.passed
+              ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-100'
+              : 'border-red-500/30 bg-red-500/5 text-red-100',
+          )}
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 font-medium">
+              <span
+                className={clsx(
+                  'inline-flex h-2 w-2 rounded-full',
+                  evalVerdict.passed ? 'bg-emerald-400' : 'bg-red-400',
+                )}
+              />
+              {evalVerdict.passed
+                ? 'Eval passed — proposal ready for review'
+                : 'Eval failed — MITRE accuracy regression'}
+            </div>
+            <Link
+              href={`/detection/proposals?highlight=${evalVerdict.proposalId}`}
+              className="text-xs underline-offset-2 hover:underline"
+            >
+              View in proposal queue →
+            </Link>
+          </div>
+          {(evalVerdict.candidateMitre !== undefined ||
+            evalVerdict.baselineMitre !== undefined ||
+            evalVerdict.dropPp !== undefined) && (
+            <div className="mt-2 grid grid-cols-2 gap-x-6 gap-y-1 text-xs text-gray-200 sm:grid-cols-4">
+              {evalVerdict.candidateMitre !== undefined && (
+                <div>
+                  <span className="text-gray-400">Candidate MITRE</span>{' '}
+                  <span className="font-mono">
+                    {(evalVerdict.candidateMitre * 100).toFixed(1)}%
+                  </span>
+                </div>
+              )}
+              {evalVerdict.baselineMitre !== undefined && (
+                <div>
+                  <span className="text-gray-400">Baseline MITRE</span>{' '}
+                  <span className="font-mono">
+                    {(evalVerdict.baselineMitre * 100).toFixed(1)}%
+                  </span>
+                </div>
+              )}
+              {evalVerdict.dropPp !== undefined && (
+                <div>
+                  <span className="text-gray-400">Δ pp</span>{' '}
+                  <span className="font-mono">
+                    {evalVerdict.dropPp >= 0 ? '+' : ''}
+                    {(-evalVerdict.dropPp).toFixed(2)}
+                  </span>
+                </div>
+              )}
+              {evalVerdict.maxRegressionPp !== undefined && (
+                <div>
+                  <span className="text-gray-400">Gate</span>{' '}
+                  <span className="font-mono">
+                    ≤ {evalVerdict.maxRegressionPp.toFixed(2)} pp
+                  </span>
+                </div>
+              )}
+              {evalVerdict.durationSeconds !== undefined && (
+                <div>
+                  <span className="text-gray-400">Runtime</span>{' '}
+                  <span className="font-mono">
+                    {evalVerdict.durationSeconds.toFixed(1)}s
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/*
         Ambient Copilot — rule-scoped contextual AI. Only shown in edit mode where

@@ -22,8 +22,15 @@ Endpoints
 
 from __future__ import annotations
 
+import asyncio
+import json
+import os
+import subprocess
+import sys
+import tempfile
 import uuid
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -39,6 +46,15 @@ from app.models.detection_proposal import (
 from app.models.detection_rule import DetectionRule
 
 router = APIRouter(prefix="/detection-proposals", tags=["detection_rules", "dac"])
+
+
+# Repository root: services/api/app/api/v1/endpoints/detection_proposals.py
+#                   ^      ^   ^   ^   ^  ^         ^
+# parents:           [0]    [1] [2] [3] [4][5]       [6] = repo root
+_ENDPOINT_FILE = Path(__file__).resolve()
+_REPO_ROOT_DEFAULT = _ENDPOINT_FILE.parents[6]
+_REPO_ROOT = Path(os.environ.get("AISOC_REPO_ROOT", str(_REPO_ROOT_DEFAULT)))
+_EVAL_SCRIPT = _REPO_ROOT / "scripts" / "run_evals.py"
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -112,6 +128,49 @@ class EvalAttachRequest(BaseModel):
 class DecisionRequest(BaseModel):
     decision: Literal["approve", "reject"]
     comment: str | None = Field(default=None, max_length=2000)
+
+
+class RunEvalRequest(BaseModel):
+    """Trigger a local run of the offline eval harness.
+
+    The runner is `scripts/run_evals.py`. It is fully offline and deterministic
+    against the 200-incident synthetic benchmark, so this endpoint can be safely
+    called from the rule editor on every "Propose for review" action.
+    """
+
+    use_active_baseline: bool = Field(
+        default=True,
+        description=(
+            "If true (default), the most recent active MITRE accuracy baseline "
+            "is materialised to a temp file and passed to run_evals.py via "
+            "--baseline so the runner can compute baseline_compare in-band."
+        ),
+    )
+    max_regression_pp: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=100.0,
+        description=(
+            "Allowed MITRE accuracy regression vs the active baseline, in "
+            "percentage points. Forwarded to run_evals.py."
+        ),
+    )
+    timeout_seconds: int = Field(
+        default=180,
+        ge=10,
+        le=900,
+        description="Hard timeout for the eval subprocess.",
+    )
+
+
+class RunEvalResponse(BaseModel):
+    """Wraps the JSON report emitted by `run_evals.py`."""
+
+    report: dict[str, Any]
+    exit_code: int
+    duration_seconds: float
+    ran_at: datetime
+    script: str
 
 
 class BaselineResponse(BaseModel):
@@ -366,6 +425,184 @@ async def comment_on_proposal(
     await db.commit()
     await db.refresh(proposal)
     return ProposalResponse.model_validate(proposal)
+
+
+async def _resolve_active_baseline(
+    db: Any,
+    tenant_id: uuid.UUID,
+) -> DetectionEvalBaseline | None:
+    """Return the most recent active MITRE accuracy baseline for the tenant.
+
+    Falls back to the platform-wide (tenant_id IS NULL) baseline.
+    """
+    q = await db.execute(
+        select(DetectionEvalBaseline)
+        .where(
+            DetectionEvalBaseline.suite == "mitre_accuracy",
+            DetectionEvalBaseline.is_active.is_(True),
+            or_(
+                DetectionEvalBaseline.tenant_id == tenant_id,
+                DetectionEvalBaseline.tenant_id.is_(None),
+            ),
+        )
+        .order_by(DetectionEvalBaseline.created_at.desc())
+        .limit(1)
+    )
+    return q.scalar_one_or_none()
+
+
+def _run_eval_subprocess(
+    *,
+    baseline_path: Path | None,
+    out_path: Path,
+    max_regression_pp: float,
+    timeout_seconds: int,
+) -> tuple[int, str, str]:
+    """Run `scripts/run_evals.py` synchronously and return (exit_code, stdout, stderr).
+
+    Designed to be invoked from a thread pool via ``run_in_executor`` so the
+    FastAPI event loop is not blocked.
+    """
+    cmd: list[str] = [
+        sys.executable,
+        str(_EVAL_SCRIPT),
+        "--json",
+        "--out",
+        str(out_path),
+        "--max-regression-pp",
+        str(max_regression_pp),
+    ]
+    if baseline_path is not None:
+        cmd.extend(["--baseline", str(baseline_path)])
+
+    env = os.environ.copy()
+    # The runner imports modules from services/agents — make sure that path is available.
+    env.setdefault("PYTHONPATH", str(_REPO_ROOT / "services" / "agents"))
+
+    proc = subprocess.run(  # noqa: S603 — fixed argv, no shell=True
+        cmd,
+        cwd=str(_REPO_ROOT),
+        capture_output=True,
+        text=True,
+        timeout=timeout_seconds,
+        env=env,
+        check=False,
+    )
+    return proc.returncode, proc.stdout, proc.stderr
+
+
+@router.post(
+    "/run-eval",
+    response_model=RunEvalResponse,
+    summary="Run the offline eval harness (`scripts/run_evals.py`) and return the JSON report",
+)
+async def run_eval_harness(
+    request: RunEvalRequest,
+    current_user: Annotated[AuthUser, Depends(require_permission("rules:write"))],
+    db: DBSession,
+) -> RunEvalResponse:
+    """Execute the offline eval harness and return its JSON output.
+
+    This is the "eval-harness regression on save" hook for the in-app rule editor.
+    The harness is deterministic and offline, but takes 5–15s, so the editor
+    surfaces it as an explicit "Propose for review" action rather than firing on
+    every keystroke.
+    """
+    _ensure_dac_enabled()
+
+    if not _EVAL_SCRIPT.exists():
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=(
+                f"Eval runner missing at {_EVAL_SCRIPT}. Set AISOC_REPO_ROOT or "
+                "verify the deployment includes scripts/run_evals.py."
+            ),
+        )
+
+    baseline_path: Path | None = None
+    baseline_tmp: tempfile._TemporaryFileWrapper[str] | None = None
+    out_tmp: tempfile._TemporaryFileWrapper[str] | None = None
+    started_at = datetime.now(UTC)
+    try:
+        if request.use_active_baseline:
+            baseline = await _resolve_active_baseline(db, current_user.tenant_id)
+            if baseline is not None:
+                baseline_tmp = tempfile.NamedTemporaryFile(  # noqa: SIM115 — closed in finally
+                    mode="w",
+                    suffix="_baseline.json",
+                    delete=False,
+                )
+                json.dump(baseline.payload or {}, baseline_tmp)
+                baseline_tmp.flush()
+                baseline_tmp.close()
+                baseline_path = Path(baseline_tmp.name)
+
+        out_tmp = tempfile.NamedTemporaryFile(  # noqa: SIM115 — closed in finally
+            mode="w",
+            suffix="_eval_report.json",
+            delete=False,
+        )
+        out_tmp.close()
+        out_path = Path(out_tmp.name)
+
+        loop = asyncio.get_event_loop()
+        try:
+            exit_code, stdout, stderr = await loop.run_in_executor(
+                None,
+                lambda: _run_eval_subprocess(
+                    baseline_path=baseline_path,
+                    out_path=out_path,
+                    max_regression_pp=request.max_regression_pp,
+                    timeout_seconds=request.timeout_seconds,
+                ),
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise HTTPException(
+                status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                detail=f"Eval harness exceeded {request.timeout_seconds}s timeout",
+            ) from exc
+
+        # The runner exits with:
+        #   0 = pass, 1 = a suite is below floor, 2 = MITRE regressed vs baseline.
+        # In all three cases the JSON report is still written to --out.
+        if exit_code not in (0, 1, 2):
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=(
+                    f"Eval harness failed with exit code {exit_code}. "
+                    f"stderr={stderr[-2000:].strip()}"
+                ),
+            )
+
+        # Prefer reading the on-disk JSON over parsing stdout — stdout is also
+        # JSON when --json is set, but the runner sometimes prefixes a banner.
+        try:
+            report_text = out_path.read_text()
+            report = json.loads(report_text) if report_text.strip() else json.loads(stdout)
+        except json.JSONDecodeError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=(
+                    "Eval harness produced unparseable JSON. "
+                    f"stderr={stderr[-2000:].strip()}"
+                ),
+            ) from exc
+
+        finished_at = datetime.now(UTC)
+        return RunEvalResponse(
+            report=report,
+            exit_code=exit_code,
+            duration_seconds=round((finished_at - started_at).total_seconds(), 3),
+            ran_at=started_at,
+            script=str(_EVAL_SCRIPT.relative_to(_REPO_ROOT)) if _EVAL_SCRIPT.is_relative_to(_REPO_ROOT) else str(_EVAL_SCRIPT),
+        )
+    finally:
+        for tmp in (baseline_tmp, out_tmp):
+            if tmp is not None:
+                try:
+                    Path(tmp.name).unlink(missing_ok=True)
+                except OSError:
+                    pass
 
 
 @router.post("/{proposal_id}/eval", response_model=ProposalResponse)
