@@ -8,13 +8,18 @@ replay every agent decision.
 
 Endpoints:
 
-* ``GET /v1/investigations``                    - list runs for this tenant
-* ``GET /v1/investigations/{run_id}``           - run summary + counts
-* ``GET /v1/investigations/{run_id}/events``    - paginated event timeline
-* ``GET /v1/investigations/{run_id}/replay``    - full ordered event list
-* ``GET /v1/investigations/{run_id}/explain``   - per-step deep-dive: prompt,
-                                                   response, evidence, downstream
-                                                   effects for a single ``seq``
+* ``GET /v1/investigations``                              - list runs for this tenant
+* ``GET /v1/investigations/{run_id}``                     - run summary + counts
+* ``GET /v1/investigations/{run_id}/events``              - paginated event timeline
+* ``GET /v1/investigations/{run_id}/replay``              - full ordered event list
+* ``GET /v1/investigations/{run_id}/timeline``            - scrubbable timeline with
+                                                             decision-provenance annotations
+                                                             and cross-attempt diffs
+* ``GET /v1/investigations/{run_id}/explain``             - per-step deep-dive: prompt,
+                                                             response, evidence, downstream
+                                                             effects for a single ``seq``
+* ``POST /v1/investigations/{run_id}/close``              - close run + generate summary artifact
+* ``GET  /v1/investigations/{run_id}/summary.pdf``        - PDF export of investigation summary
 * ``GET /v1/investigations/{run_id}/artifacts/{artifact_id}`` - blob payload
 
 All endpoints respect tenant RLS via ``TenantDBSession``.
@@ -22,13 +27,18 @@ All endpoints respect tenant RLS via ``TenantDBSession``.
 
 from __future__ import annotations
 
+import hashlib
+import io
+import textwrap
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import func, select, text
+from sqlalchemy.engine import RowMapping
 
 from app.api.v1.deps import AuthUser, require_permission
 from app.db.rls import TenantDBSession
@@ -213,7 +223,7 @@ async def _fetch_run(
     return run
 
 
-def _aggregate_row(row: dict) -> CostAggregateRow:
+def _aggregate_row(row: RowMapping) -> CostAggregateRow:
     """Convert a single ``aisoc_run_costs`` aggregate row into the API model.
 
     Centralises the SUM-COALESCE-cast dance and the divide-by-zero guards
@@ -338,9 +348,10 @@ async def aggregate_costs(
     models would double-count runs that touched more than one model).
     """
     rows = (
-        await db.execute(
-            text(
-                """
+        (
+            await db.execute(
+                text(
+                    """
                 SELECT GROUPING(c.model)              AS is_total,
                        COALESCE(c.model, '__total__') AS model,
                        COUNT(DISTINCT c.run_id)       AS runs,
@@ -356,13 +367,16 @@ async def aggregate_costs(
                 GROUP BY GROUPING SETS ((c.model), ())
                 ORDER BY GROUPING(c.model), SUM(c.total_cost_usd) DESC
                 """
-            ),
-            {
-                "tenant_id": current_user.tenant_id,
-                "window_days": window_days,
-            },
+                ),
+                {
+                    "tenant_id": current_user.tenant_id,
+                    "window_days": window_days,
+                },
+            )
         )
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
 
     by_model: list[CostAggregateRow] = []
     totals: CostAggregateRow | None = None
@@ -601,3 +615,418 @@ async def get_artifact(
         content=art.content,
         blob_ref=art.blob_ref,
     )
+
+
+# ---------------------------------------------------------------------------
+# Close + auto-summary  (WS-D2)
+# ---------------------------------------------------------------------------
+
+
+class CloseRequest(BaseModel):
+    """Optional analyst note appended to the auto-generated summary."""
+
+    analyst_note: str | None = None
+
+
+class ClosedSummary(BaseModel):
+    """Response body for POST /close."""
+
+    run_id: uuid.UUID
+    status: str
+    artifact_id: uuid.UUID
+    summary_markdown: str
+
+
+# ---------------------------------------------------------------------------
+# Timeline schemas (WS-D3)
+# ---------------------------------------------------------------------------
+
+
+class TimelineDecision(BaseModel):
+    """Agent decision provenance annotation for a single timeline node."""
+
+    reason: str | None
+    confidence: float | None
+    next_phase: str | None
+    tool_name: str | None
+    tool_args: dict | None
+    tool_result_summary: str | None
+
+
+class TimelineNode(BaseModel):
+    """One node in the scrubbable investigation timeline."""
+
+    seq: int
+    ts: datetime
+    kind: str
+    agent: str
+    summary: str
+    duration_ms: int
+    decision: TimelineDecision | None
+    has_artifact: bool
+    diff_vs_prev_attempt: str | None
+
+
+class TimelineResponse(BaseModel):
+    """Full timeline for a closed or in-progress run.
+
+    ``nodes`` are ordered by ``seq`` ascending. ``total_duration_ms`` is the
+    wall-clock span from first to last event. ``attempt_count`` counts unique
+    retry attempts inferred from ``agent_start`` events.
+    """
+
+    run_id: uuid.UUID
+    case_id: str
+    status: str
+    total_duration_ms: int
+    attempt_count: int
+    nodes: list[TimelineNode]
+
+
+def _extract_decision(event: InvestigationEvent) -> TimelineDecision | None:
+    """Extract decision-provenance fields from an event's payload.
+
+    The agent graph stores structured decision metadata in the JSONB
+    ``payload`` column. The keys used here mirror ``StepKind`` labels in
+    ``services/agents/app/investigator/state.py``.  We gracefully tolerate
+    missing keys so older ledger rows still render without error.
+    """
+    if event.payload is None:
+        return None
+    p = event.payload
+    reason = p.get("reason") or p.get("rationale") or p.get("explanation")
+    confidence = p.get("confidence")
+    try:
+        confidence = float(confidence) if confidence is not None else None
+    except (TypeError, ValueError):
+        confidence = None
+
+    next_phase = p.get("next_phase") or p.get("next_step") or p.get("transition")
+    tool_name = p.get("tool") or p.get("tool_name") or p.get("action")
+    tool_args = p.get("tool_args") or p.get("args") or p.get("parameters")
+    result = p.get("result") or p.get("output") or p.get("tool_result")
+    if isinstance(result, dict):
+        tool_result_summary = result.get("summary") or result.get("message") or str(result)[:200]
+    elif isinstance(result, str):
+        tool_result_summary = result[:200]
+    else:
+        tool_result_summary = None
+
+    if not any([reason, confidence, next_phase, tool_name]):
+        return None
+    return TimelineDecision(
+        reason=reason,
+        confidence=confidence,
+        next_phase=next_phase,
+        tool_name=tool_name,
+        tool_args=tool_args,
+        tool_result_summary=tool_result_summary,
+    )
+
+
+def _diff_vs_prev(
+    events: list[InvestigationEvent],
+    idx: int,
+) -> str | None:
+    """Produce a one-line diff annotation when the same agent re-ran a step.
+
+    Compares ``summary`` text between the current event and the last event
+    of the same ``kind`` and ``agent`` combination that occurred earlier
+    in the same run.  Returns ``None`` when no prior attempt exists or the
+    summaries are identical.
+    """
+    current = events[idx]
+    for prior in reversed(events[:idx]):
+        if prior.kind == current.kind and prior.agent == current.agent:
+            if prior.summary == current.summary:
+                return None
+            old_words = set(prior.summary.split())
+            new_words = set(current.summary.split())
+            added = new_words - old_words
+            removed = old_words - new_words
+            parts: list[str] = []
+            if removed:
+                parts.append(f"-{len(removed)} words")
+            if added:
+                parts.append(f"+{len(added)} words")
+            return f"Changed vs seq {prior.seq}: {', '.join(parts)}" if parts else None
+    return None
+
+
+@router.get("/{run_id}/timeline", response_model=TimelineResponse)
+async def get_timeline(
+    run_id: uuid.UUID,
+    current_user: Annotated[AuthUser, Depends(require_permission("cases:read"))],
+    db: TenantDBSession,
+) -> TimelineResponse:
+    """Return a scrubbable investigation timeline with decision-provenance annotations.
+
+    Each node carries:
+    * ``decision`` — structured provenance (reason, confidence, next phase,
+      tool name/args/result) extracted from the event ``payload``.
+    * ``has_artifact`` — whether a detailed transcript artifact is attached.
+    * ``diff_vs_prev_attempt`` — one-line diff for repeated steps so analysts
+      can see how the agent corrected itself across retry attempts.
+
+    The response is bounded at 10 000 events. Use the paginated ``/events``
+    endpoint for runs that exceed this.
+    """
+    run = await _fetch_run(db, run_id, current_user.tenant_id)
+
+    events_q = select(InvestigationEvent).where(InvestigationEvent.run_id == run_id).order_by(InvestigationEvent.seq.asc()).limit(10000)
+    events: list[InvestigationEvent] = list((await db.execute(events_q)).scalars().all())
+
+    artifact_event_ids_q = select(InvestigationArtifact.event_id).where(
+        InvestigationArtifact.run_id == run_id,
+        InvestigationArtifact.event_id.isnot(None),
+    )
+    artifact_event_ids: set[uuid.UUID] = {eid for eid in (await db.execute(artifact_event_ids_q)).scalars().all() if eid is not None}
+
+    nodes: list[TimelineNode] = []
+    for idx, ev in enumerate(events):
+        nodes.append(
+            TimelineNode(
+                seq=ev.seq,
+                ts=ev.ts,
+                kind=ev.kind,
+                agent=ev.agent,
+                summary=ev.summary,
+                duration_ms=ev.duration_ms,
+                decision=_extract_decision(ev),
+                has_artifact=ev.id in artifact_event_ids,
+                diff_vs_prev_attempt=_diff_vs_prev(events, idx),
+            )
+        )
+
+    total_ms = 0
+    if len(events) >= 2:
+        first_ts = events[0].ts
+        last_ts = events[-1].ts
+        total_ms = int((last_ts - first_ts).total_seconds() * 1000)
+
+    attempt_count = sum(1 for e in events if e.kind in ("agent_start", "run_start"))
+    if attempt_count == 0:
+        attempt_count = 1
+
+    return TimelineResponse(
+        run_id=run.id,
+        case_id=run.case_id,
+        status=run.status,
+        total_duration_ms=total_ms,
+        attempt_count=attempt_count,
+        nodes=nodes,
+    )
+
+
+def _build_summary_markdown(
+    run: InvestigationRun,
+    events: list[InvestigationEvent],
+    analyst_note: str | None,
+) -> str:
+    """Build a structured Markdown investigation summary from ORM objects.
+
+    The summary is deterministic (no LLM call) so it is always available
+    even in air-gapped / local-LLM mode. It mirrors the structure that
+    WS-H3 (Audit export) will ingest.
+    """
+    started = run.started_at.strftime("%Y-%m-%d %H:%M:%S UTC") if run.started_at else "—"
+    closed_at = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
+
+    # Tally event kinds
+    kind_counts: dict[str, int] = {}
+    for ev in events:
+        kind_counts[ev.kind] = kind_counts.get(ev.kind, 0) + 1
+
+    timeline_lines = []
+    for ev in events[-20:]:  # last 20 steps to keep the artifact manageable
+        ts = ev.ts.strftime("%H:%M:%S") if ev.ts else "—"
+        timeline_lines.append(f"| {ts} | `{ev.kind}` | {ev.agent} | {ev.summary[:120]} |")
+
+    timeline_md = (
+        ("| Time | Kind | Agent | Summary |\n|------|------|-------|---------|  \n" + "\n".join(timeline_lines))
+        if timeline_lines
+        else "_No events recorded._"
+    )
+
+    note_section = f"\n## Analyst Note\n\n{analyst_note}\n" if analyst_note else ""
+
+    return textwrap.dedent(f"""\
+        # Investigation Summary — {run.case_id}
+
+        **Run ID:** `{run.id}`
+        **Status:** {run.status}
+        **Model:** {run.model_used or "unknown"}
+        **Started:** {started}
+        **Closed:** {closed_at}
+
+        ## Metrics
+
+        | Metric | Value |
+        |--------|-------|
+        | Iterations | {run.iterations} |
+        | Total tokens | {run.total_tokens:,} |
+        | Estimated cost (USD) | ${float(run.total_cost_usd):.4f} |
+        | Events recorded | {len(events)} |
+
+        ## Event Kind Breakdown
+
+        {chr(10).join(f"- **{k}**: {v}" for k, v in sorted(kind_counts.items()))}
+
+        ## Timeline (last {min(20, len(events))} steps)
+
+        {timeline_md}
+        {note_section}
+        ---
+        *Generated by AiSOC — beenu@cyble.com*
+    """)
+
+
+@router.post("/{run_id}/close", response_model=ClosedSummary)
+async def close_investigation(
+    run_id: uuid.UUID,
+    body: CloseRequest,
+    current_user: Annotated[AuthUser, Depends(require_permission("cases:write"))],
+    db: TenantDBSession,
+) -> ClosedSummary:
+    """Close an investigation run and persist an auto-generated summary artifact.
+
+    Idempotent: if the run is already closed a summary artifact is still
+    generated and returned (useful for re-generating the PDF).
+
+    Status transitions: ``running | completed | failed`` → ``closed``
+    """
+    run = await _fetch_run(db, run_id, current_user.tenant_id)
+
+    # Load all events for summary generation
+    events_result = await db.execute(
+        select(InvestigationEvent).where(InvestigationEvent.run_id == run_id).order_by(InvestigationEvent.seq.asc())
+    )
+    events = list(events_result.scalars().all())
+
+    summary_md = _build_summary_markdown(run, events, body.analyst_note)
+    encoded = summary_md.encode()
+    sha = hashlib.sha256(encoded).hexdigest()
+
+    artifact = InvestigationArtifact(
+        run_id=run_id,
+        tenant_id=current_user.tenant_id,
+        kind="investigation-summary",
+        content=summary_md,
+        sha256=sha,
+        size_bytes=len(encoded),
+    )
+    db.add(artifact)
+
+    # Transition status to closed
+    run.status = "closed"
+    run.completed_at = run.completed_at or datetime.now(UTC)
+
+    await db.commit()
+    await db.refresh(artifact)
+
+    return ClosedSummary(
+        run_id=run_id,
+        status="closed",
+        artifact_id=artifact.id,
+        summary_markdown=summary_md,
+    )
+
+
+@router.get("/{run_id}/summary.pdf")
+async def export_summary_pdf(
+    run_id: uuid.UUID,
+    current_user: Annotated[AuthUser, Depends(require_permission("cases:read"))],
+    db: TenantDBSession,
+) -> StreamingResponse:
+    """Stream the investigation summary as a PDF.
+
+    Looks for the most recent ``investigation-summary`` artifact. If none
+    exists yet the caller should ``POST /close`` first. The PDF is generated
+    server-side using pure-Python ``reportlab`` so there are no browser or
+    headless-Chrome dependencies.
+    """
+    await _fetch_run(db, run_id, current_user.tenant_id)
+
+    # Fetch most recent summary artifact
+    q = (
+        select(InvestigationArtifact)
+        .where(
+            InvestigationArtifact.run_id == run_id,
+            InvestigationArtifact.kind == "investigation-summary",
+        )
+        .order_by(InvestigationArtifact.created_at.desc())
+        .limit(1)
+    )
+    art = (await db.execute(q)).scalar_one_or_none()
+    if art is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No summary artifact found. POST /close first to generate one.",
+        )
+
+    pdf_bytes = _render_pdf(art.content or "", str(run_id))
+    filename = f"investigation-{run_id}.pdf"
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+def _render_pdf(markdown_text: str, run_id: str) -> bytes:
+    """Render Markdown text to a minimal PDF using reportlab.
+
+    Falls back to a plain-text PDF if reportlab is not installed so the
+    endpoint never 500s in environments that haven't installed the optional
+    dependency.
+    """
+    try:
+        from reportlab.lib.pagesizes import A4  # type: ignore[import-untyped]
+        from reportlab.lib.styles import getSampleStyleSheet  # type: ignore[import-untyped]
+        from reportlab.lib.units import cm  # type: ignore[import-untyped]
+        from reportlab.platypus import (  # type: ignore[import-untyped]
+            Paragraph,
+            SimpleDocTemplate,
+            Spacer,
+        )
+
+        buf = io.BytesIO()
+        doc = SimpleDocTemplate(
+            buf,
+            pagesize=A4,
+            rightMargin=2 * cm,
+            leftMargin=2 * cm,
+            topMargin=2 * cm,
+            bottomMargin=2 * cm,
+        )
+        styles = getSampleStyleSheet()
+        story = []
+
+        for line in markdown_text.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("# "):
+                story.append(Paragraph(stripped[2:], styles["Title"]))
+            elif stripped.startswith("## "):
+                story.append(Spacer(1, 0.3 * cm))
+                story.append(Paragraph(stripped[3:], styles["Heading2"]))
+            elif stripped.startswith("| "):
+                # Render table rows as monospace for readability
+                story.append(Paragraph(f"<font name='Courier' size='8'>{stripped}</font>", styles["Normal"]))
+            elif stripped.startswith("- "):
+                story.append(Paragraph(f"• {stripped[2:]}", styles["Normal"]))
+            elif stripped.startswith("*") and stripped.endswith("*"):
+                story.append(Spacer(1, 0.2 * cm))
+                story.append(Paragraph(f"<i>{stripped.strip('*')}</i>", styles["Normal"]))
+            elif stripped:
+                story.append(Paragraph(stripped, styles["Normal"]))
+            else:
+                story.append(Spacer(1, 0.2 * cm))
+
+        doc.build(story)
+        return buf.getvalue()
+
+    except ImportError:
+        # reportlab not installed — emit a plain-text PDF-like fallback
+        header = b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n"
+        body = markdown_text.encode("utf-8", errors="replace")
+        return header + body

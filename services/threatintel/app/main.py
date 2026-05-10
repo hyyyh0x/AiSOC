@@ -23,7 +23,9 @@ from opensearchpy import AsyncOpenSearch
 from prometheus_client import Counter, make_asgi_app
 from qdrant_client import AsyncQdrantClient
 
+from app.actors.attribution import ThreatActorAttributionEngine
 from app.airgap import airgap_status, is_host_allowed_for_airgap
+from app.api.actor_attribution import router as actor_attribution_router
 from app.clients.cisa_kev import CisaKevClient
 from app.clients.misp import MispClient
 from app.clients.otx import OtxClient
@@ -190,11 +192,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Register TAXII feeds (skipped entirely if the configured TAXII server
     # is on the public Internet and AISOC_AIRGAPPED=1 — this prevents even
     # a single boot-time DNS lookup from leaking the deployment).
-    if (
-        settings.TAXII_URL
-        and settings.TAXII_COLLECTION_IDS
-        and _airgap_check_feed_url("taxii", settings.TAXII_URL)
-    ):
+    if settings.TAXII_URL and settings.TAXII_COLLECTION_IDS and _airgap_check_feed_url("taxii", settings.TAXII_URL):
         for col_id in settings.TAXII_COLLECTION_IDS.split(","):
             col_id = col_id.strip()
             if col_id:
@@ -243,6 +241,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.scheduler = scheduler
     app.state.pipeline = pipeline
     app.state.redis = redis
+    app.state.os_store = os_store
+
+    # Threat actor attribution engine — shares the os_store so the IOC
+    # component of the score can match against collected threat intel.
+    app.state.attribution_engine = ThreatActorAttributionEngine(os_store=os_store)
 
     yield
 
@@ -267,6 +270,9 @@ app = FastAPI(
 # Mount Prometheus metrics
 metrics_app = make_asgi_app()
 app.mount("/metrics", metrics_app)
+
+# Threat actor attribution router (v0)
+app.include_router(actor_attribution_router)
 
 
 @app.get("/health")

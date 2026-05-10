@@ -8,6 +8,7 @@ import { alertsApi, type Alert, type AlertFilters, type ConfidenceLabel } from '
 import { clsx } from 'clsx';
 import { formatDistanceToNow } from 'date-fns';
 import { EntityRiskQueue } from './EntityRiskQueue';
+import { ExplainDrawer } from './ExplainDrawer';
 import { EmptyState, EmptyStateIcons } from '@/components/ui/EmptyState';
 import { ErrorState } from '@/components/ui/ErrorState';
 import { SavedViewsBar } from '@/components/saved-views/SavedViewsBar';
@@ -177,7 +178,10 @@ function FiltersBar({
   );
 }
 
-function AlertRow({ alert }: { alert: Alert }) {
+// WS-D1 — AlertRow accepts an onExplain callback so the Explain button can open
+// the SSE-streaming side drawer without navigating away. The button uses
+// e.preventDefault() + e.stopPropagation() to suppress the parent <Link>.
+function AlertRow({ alert, onExplain }: { alert: Alert; onExplain: (a: Alert) => void }) {
   return (
     <Link
       href={`/alerts/${alert.id}`}
@@ -206,6 +210,20 @@ function AlertRow({ alert }: { alert: Alert }) {
       </div>
 
       <div className="flex items-center gap-2 shrink-0">
+        {/* WS-D1: Explain button — opens SSE-streaming side drawer */}
+        <button
+          type="button"
+          aria-label="AI explain this alert"
+          title="AI Explain"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onExplain(alert);
+          }}
+          className="text-[10px] font-medium px-2 py-0.5 rounded border border-violet-500/30 bg-violet-500/10 text-violet-400 hover:bg-violet-500/20 hover:border-violet-500/50 transition-colors shrink-0"
+        >
+          ✦ Explain
+        </button>
         {alert.confidenceLabel && <ConfidencePill label={alert.confidenceLabel} />}
         <SeverityBadge severity={alert.severity} />
         <StatusBadge status={alert.status} />
@@ -225,6 +243,8 @@ export function AlertsView() {
   // RBA work. Analysts can flip back to the raw alert grid for legacy
   // workflows or when triaging a specific alert ID.
   const [viewMode, setViewMode] = useState<ViewMode>('entities');
+  // WS-D1 — controls the SSE-streaming Explain side drawer.
+  const [explainAlert, setExplainAlert] = useState<Alert | null>(null);
 
   const { data, error, isLoading } = useSWR(
     ['alerts', filters],
@@ -298,12 +318,18 @@ export function AlertsView() {
               Alerts
             </button>
           </div>
-          <button
-            onClick={() => toast('Manual alert creation is coming soon.', { icon: '🔔' })}
-            className="bg-blue-600 hover:bg-blue-500 text-white text-sm px-4 py-2 rounded-lg transition-colors"
-          >
-            + Create Alert
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              disabled
+              title="Manual alert creation is planned for v1.1"
+              className="bg-gray-700 text-gray-400 text-sm px-4 py-2 rounded-lg cursor-not-allowed select-none"
+            >
+              + Create Alert
+            </button>
+            <span className="text-xs font-medium rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/30 px-2 py-0.5">
+              Planned for v1.1
+            </span>
+          </div>
         </div>
       </div>
 
@@ -320,6 +346,18 @@ export function AlertsView() {
           isLoading={isLoading}
           error={error}
           onFilterChange={handleFilterChange}
+          onExplain={setExplainAlert}
+        />
+      )}
+
+      {/* WS-D1 — SSE-streaming AI explain side drawer.
+          We always mount the drawer (open controls CSS visibility) so the
+          closing animation can finish before the alert ref is cleared.  */}
+      {explainAlert && (
+        <ExplainDrawer
+          open={true}
+          alert={explainAlert}
+          onClose={() => setExplainAlert(null)}
         />
       )}
     </div>
@@ -338,6 +376,7 @@ function AlertsTable({
   isLoading,
   error,
   onFilterChange,
+  onExplain,
 }: {
   alerts: Alert[];
   total: number;
@@ -348,6 +387,7 @@ function AlertsTable({
   isLoading: boolean;
   error: unknown;
   onFilterChange: (f: AlertFilters) => void;
+  onExplain: (a: Alert) => void;
 }) {
   return (
     <div className="space-y-4">
@@ -439,7 +479,7 @@ function AlertsTable({
         ) : (
           <div>
             {alerts.map((alert) => (
-              <AlertRow key={alert.id} alert={alert} />
+              <AlertRow key={alert.id} alert={alert} onExplain={onExplain} />
             ))}
           </div>
         )}

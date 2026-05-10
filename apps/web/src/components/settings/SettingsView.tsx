@@ -584,7 +584,13 @@ function ProfilePanel() {
             </p>
             <p className="truncate text-sm text-gray-400">{profile.email}</p>
             <p className="mt-1 text-xs text-gray-500">
-              Avatar generated from initials. Custom avatars coming soon.
+              Avatar generated from initials.{' '}
+              <span className="inline-flex items-center gap-1">
+                Custom avatars
+                <span className="text-[10px] font-medium rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/30 px-1.5 py-0.5">
+                  Planned for v1.1
+                </span>
+              </span>
             </p>
           </div>
         </div>
@@ -626,9 +632,8 @@ function ProfilePanel() {
         </div>
 
         <div className="rounded-lg border border-gray-800 bg-gray-950/40 p-4 text-xs text-gray-500">
-          Profile preferences are stored locally for this demo build. In
-          production they sync to the directory provider configured for your
-          tenant.
+          Profile preferences are persisted to your user account and sync
+          across devices when you sign in.
         </div>
       </div>
     </div>
@@ -1226,8 +1231,7 @@ function AppearancePanel() {
         <div>
           <p className="text-sm font-medium text-gray-300">Theme</p>
           <p className="mt-1 text-xs text-gray-500">
-            Pick the palette this browser uses. Stored locally — no server
-            round-trip.
+            Pick the palette this browser uses. Synced to your user profile.
           </p>
           <div className="mt-3 grid grid-cols-3 gap-3">
             {(['system', 'dark', 'light'] as const satisfies readonly ThemePreference[]).map((t) => {

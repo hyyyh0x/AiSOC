@@ -132,13 +132,33 @@ class Settings(BaseSettings):
     # loop; a hung provider should not stall the cadence.
     OAUTH_REFRESH_HTTP_TIMEOUT_SECONDS: float = 15.0
 
+    # ------------------------------------------------------------------
+    # WS-G2: Weekly Executive Digest auto-generation worker.
+    # Author: Beenu <beenu@cyble.com>
+    #
+    # The worker runs as a single ``asyncio.Task`` inside the API process
+    # (``lifespan`` hook in main.py). Every Monday at 00:xx UTC it generates
+    # a PDF (or HTML fallback) executive digest for every active tenant and
+    # persists a ``ReportArtefact`` row.
+    #
+    # ``WEEKLY_DIGEST_WORKER_ENABLED``      – Set false to disable (e.g. in
+    #                                         unit-test environments or when
+    #                                         digests are triggered externally).
+    # ``WEEKLY_DIGEST_POLL_INTERVAL_SECONDS`` – How often (seconds) the loop
+    #                                         checks whether it is Monday 00:xx.
+    #                                         Defaults to 3600 (1 hour). Must
+    #                                         be ≥ 60 to avoid a busy loop.
+    # ------------------------------------------------------------------
+    WEEKLY_DIGEST_WORKER_ENABLED: bool = True
+    WEEKLY_DIGEST_POLL_INTERVAL_SECONDS: int = 3600
+
     # Database
-    DATABASE_URL: PostgresDsn = "postgresql+asyncpg://aisoc:aisoc@localhost:5432/aisoc"
+    DATABASE_URL: PostgresDsn = "postgresql+asyncpg://aisoc:aisoc@localhost:5432/aisoc"  # type: ignore[assignment]
     DATABASE_POOL_SIZE: int = 20
     DATABASE_MAX_OVERFLOW: int = 10
 
     # Redis
-    REDIS_URL: RedisDsn = "redis://localhost:6379/0"
+    REDIS_URL: RedisDsn = "redis://localhost:6379/0"  # type: ignore[assignment]
     REDIS_POOL_SIZE: int = 20
 
     # ClickHouse
@@ -230,6 +250,21 @@ class Settings(BaseSettings):
         if isinstance(v, str):
             return [origin.strip() for origin in v.split(",") if origin.strip()]
         return v
+
+    # ------------------------------------------------------------------
+    # WS-B4: Detection-as-Code git PR path
+    # Author: Beenu - beenu@cyble.com
+    #
+    # When AISOC_GITHUB_TOKEN is set the promote-proposal endpoint opens a
+    # Pull Request in AISOC_GITHUB_REPO, committing the Sigma/YARA rule file
+    # under AISOC_GITHUB_DETECTIONS_PATH and stores the PR URL on the proposal
+    # record. All three settings must be non-empty for PR creation to be
+    # attempted; any missing setting silently skips PR creation (github_pr_url
+    # remains NULL).
+    # ------------------------------------------------------------------
+    AISOC_GITHUB_TOKEN: str = ""
+    AISOC_GITHUB_REPO: str = ""  # format: "org/repo"
+    AISOC_GITHUB_DETECTIONS_PATH: str = "detections"  # path inside repo root
 
     # Demo mode (hosted at tryaisoc.com)
     # When AISOC_DEMO_MODE=true the API rejects mutating requests outside the
@@ -389,8 +424,9 @@ def warn_if_insecure_defaults(s: Settings | None = None) -> list[str]:
     if s.AISOC_AIRGAPPED:
         # Lazy import to avoid a circular reference (airgap.py imports settings).
         try:
-            from app.core.airgap import is_host_allowed_for_airgap
             import os as _os
+
+            from app.core.airgap import is_host_allowed_for_airgap
 
             llm_base = _os.getenv("LLM_BASE_URL") or _os.getenv("OPENAI_BASE_URL") or ""
             if llm_base:
