@@ -14,8 +14,8 @@ detections/fixtures/positive/jwt-none-alg.json:jwt:2
 # Render IaC env-var keys (`AISOC_DISABLE_NEO4J`, `AISOC_DISABLE_QDRANT`).
 # The generic-api-key rule fires on the long key name; the value is "true",
 # not a secret.
-infra/render/render.yaml:generic-api-key:70
-infra/render/render.yaml:generic-api-key:124
+render.yaml:generic-api-key:70
+render.yaml:generic-api-key:124
 
 # Detection rule literal: `count_5min_per_ip_gt: 30` matches the heuristic.
 # This is a rule definition, not a credential.

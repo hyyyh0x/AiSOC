@@ -11,7 +11,7 @@ An open-source, self-hostable AI SOC. The agent's prompts, tool calls, and ratio
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-8b5cf6?style=flat-square)](CONTRIBUTING.md)
 [![Version](https://img.shields.io/badge/version-6.1.0-f59e0b?style=flat-square)](CHANGELOG.md)
 
-[Live demo](https://tryaisoc.com) · [How AiSOC compares](#how-aisoc-compares) · [Public eval harness](apps/docs/docs/benchmark.md) · [Deployment options](#deployment-options) · [Architecture](#architecture) · [Docs](apps/docs/)
+[Live demo](https://tryaisoc.com) · [How AiSOC compares](#how-aisoc-compares) · [Public eval harness](apps/docs/docs/benchmark.md) · [Deploy in 60 seconds](#deploy-in-60-seconds) · [Deployment options](#deployment-options) · [Architecture](#architecture) · [Docs](apps/docs/)
 
 <sub>The demo at <a href="https://tryaisoc.com">tryaisoc.com</a> is a self-hosted instance fronted by a Cloudflare Tunnel — when it's reachable, the stack is running locally on a maintainer's box. It can therefore go offline at any time. To run your own (in 3.5 min, with seeded data), see <a href="#one-shot-demo">One-shot demo</a>; to expose your own instance on your own domain via Cloudflare Tunnel, see <a href="#public-demo-on-your-own-domain">Public demo on your own domain</a>.</sub>
 
@@ -53,6 +53,38 @@ Closed-source AI SOC vendors ship working products. AiSOC's contribution is maki
 
 ---
 
+## Deploy in 60 seconds
+
+Three frictionless paths to a running, seeded AiSOC instance with `INC-RT-001` (the LockBit 3.0 ransomware showcase) already mid-investigation when you land on it. Each path runs `alembic upgrade head` and `python -m app.scripts.seed_demo` as part of its lifecycle, so the seeded data is present without a manual step.
+
+### 1. Render — one click, hosted
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/beenuar/AiSOC)
+
+Render reads [`render.yaml`](render.yaml) at the repo root, provisions Postgres + Redis, and brings up the demo profile (api, agents, web, realtime). The `preDeployCommand` migrates and seeds, so the canonical `INC-RT-001` is present on first boot. Sleep-on-idle on the hobby tier; flip to standard instances for production. Demo runs deterministic-mode by default — no OpenAI/Anthropic key needed. See [`infra/render/README.md`](infra/render/README.md) for cost, scaling, and BYO-LLM details.
+
+### 2. Docker Compose — one command, local
+
+```bash
+git clone https://github.com/beenuar/AiSOC.git && cd AiSOC && pnpm aisoc:demo
+```
+
+Pulls prebuilt `ghcr.io/beenuar/*` images, brings up the slim demo profile (Postgres, Redis, Kafka, api, agents, realtime, web), runs the seeder as a one-shot container, and opens your browser at `/cases/INC-RT-001?tab=ledger` with `demo@aisoc.dev` already auto-logged-in. Idempotent: re-running is a no-op against a seeded volume. Target on a clean Mac with a warm Docker daemon: clone-to-investigation in **~3.5 min warm / ~5 min cold**. Stop with `pnpm aisoc:demo:down`. See [One-shot demo](#one-shot-demo) for the timing breakdown and what you'll see on screen.
+
+### 3. Fly.io — one script, hosted, persistent
+
+```bash
+git clone https://github.com/beenuar/AiSOC.git && cd AiSOC
+./infra/fly/fly-demo-deploy.sh --provision  # first run: also creates Postgres + Upstash
+./infra/fly/fly-demo-deploy.sh              # subsequent runs: deploys updates
+```
+
+Idempotent shell wrapper around `flyctl` that deploys four apps (api, agents, web, realtime) plus managed Postgres + Upstash Redis, wires the `*.internal` 6PN DNS between them, runs migrations + seeding as a `release_command`, and issues TLS certs for your domain. ~$14/mo at idle. **Time-to-first-investigation budget: <60s from the click**, since the seeder pre-warms a running investigation so the deeplink lands inside the TTFI budget regardless of cold-start. See [`infra/fly/README.md`](infra/fly/README.md) for DNS prerequisites and per-app sizing.
+
+> **Production-grade install?** Skip the demo paths above and use [`infra/helm/`](infra/helm/) (Kubernetes) or [`infra/terraform/`](infra/terraform/) (AWS). Both bring up the full storage tier — ClickHouse, Kafka, OpenSearch, Neo4j, Qdrant — gated behind compose profiles in the demo paths above.
+
+---
+
 ## Deployment options
 
 Each target ships a tested config in [`infra/`](infra/):
@@ -60,7 +92,7 @@ Each target ships a tested config in [`infra/`](infra/):
 | Platform | Status | Config | Notes |
 |---|---|---|---|
 | Fly.io | first-class | [`infra/fly/`](infra/fly/) | 4 apps, ~$14/mo. See [infra/fly/README.md](infra/fly/README.md). |
-| Render | supported | [`infra/render/render.yaml`](infra/render/render.yaml) | Sleep-on-idle, hobbyist tier. |
+| Render | supported | [`render.yaml`](render.yaml) + [`infra/render/`](infra/render/) | Sleep-on-idle, hobbyist tier. One-click via blueprint button. |
 | Railway | supported | [`infra/railway/railway.toml`](infra/railway/railway.toml) | PaaS, pay-as-you-go. |
 | Coolify | supported | [`docker-compose.yml`](docker-compose.yml) | Self-hosted on your own VPS. See [infra/coolify/README.md](infra/coolify/README.md). |
 | Kubernetes / Helm | first-class | [`infra/helm/`](infra/helm/) | `helm install aisoc ./infra/helm/aisoc` |
@@ -414,7 +446,7 @@ When you're done: `pnpm aisoc:demo:down` (stops containers and deletes the demo 
 
 #### Hosted, public-internet equivalent
 
-The same stack ships a Cloudflare Tunnel template (see [Public demo on your own domain](#public-demo-on-your-own-domain)) and tested deployment configs for [Render](infra/render/render.yaml) and [Fly.io](infra/fly/) — both wire `alembic upgrade head && python -m app.scripts.seed_demo` into the deploy lifecycle so the same `INC-RT-001` showcase is present after `render blueprint launch` or `fly deploy`.
+The same stack ships a Cloudflare Tunnel template (see [Public demo on your own domain](#public-demo-on-your-own-domain)) and tested deployment configs for [Render](render.yaml) and [Fly.io](infra/fly/) — both wire `alembic upgrade head && python -m app.scripts.seed_demo` into the deploy lifecycle so the same `INC-RT-001` showcase is present after `render blueprint launch` or `fly deploy`.
 
 The full development quick start with all services (UEBA, Honeytokens, Purple Team, ClickHouse, OpenSearch, Neo4j, Qdrant) is below.
 

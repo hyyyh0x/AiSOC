@@ -669,7 +669,7 @@ demo profile. Details below.
 - **Fly.io** (`infra/fly/`) — first-class config for `api`, `agents`,
   `realtime`, `web`. Deploys via `infra/fly/fly-demo-deploy.sh`,
   ~$14/mo for the whole stack.
-- **Render** (`infra/render/render.yaml`) — managed, sleep-on-idle
+- **Render** (`render.yaml`) — managed, sleep-on-idle
   config suitable for hobbyists and design partners.
 - **Railway** (`infra/railway/railway.toml`) — pay-as-you-go PaaS.
 - **Coolify** (`infra/coolify/README.md`) — self-hosted on your own VPS,

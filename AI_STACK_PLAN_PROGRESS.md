@@ -185,7 +185,7 @@ timing.
 Six triaged false positives, each with a comment:
 
 - `detections/fixtures/positive/jwt-none-alg.json:jwt:2` — positive test fixture.
-- `infra/render/render.yaml:generic-api-key:70` and `:124` — env var **names**
+- `render.yaml:generic-api-key:70` and `:124` — env var **names**
   (`AISOC_DISABLE_NEO4J=true`).
 - `scripts/detection_specs_part3_application.py:generic-api-key:61` —
   detection rule literal `count_5min_per_ip_gt: 30`.

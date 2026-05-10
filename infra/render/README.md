@@ -56,8 +56,8 @@ If you need the full storage tier in production, use:
 
 1. Click the **Deploy to Render** button above.
 2. Render asks for permission to read your fork of `beenuar/AiSOC`. Grant it.
-3. Render parses [`render.yaml`](render.yaml), shows the service plan, and
-   asks you to confirm.
+3. Render parses [`render.yaml`](../../render.yaml) at the repo root, shows
+   the service plan, and asks you to confirm.
 4. Click **Apply**. Render provisions Postgres + Redis first (~2 min),
    then deploys the four web services in dependency order (~6-8 min for
    the first build because Docker layers aren't cached yet).
@@ -71,8 +71,8 @@ If you've forked the repo and changed things:
 ```bash
 # From the repo root, after pushing your fork to GitHub:
 gh repo view --web
-# Then in Render: New + → Blueprint → Connect repo → select fork →
-# point at infra/render/render.yaml → Apply.
+# Then in Render: New + → Blueprint → Connect repo → select fork.
+# Render auto-detects render.yaml at the repo root → Apply.
 ```
 
 ## Post-deploy: pre-warm the demo
@@ -137,8 +137,13 @@ can take 20-30s on cold Postgres. Subsequent investigations land in
 
 ```
 infra/render/
-├── README.md       — this file
-└── render.yaml     — Render Blueprint manifest (the source of truth)
+└── README.md       — this file (Render-specific walkthrough + cost notes)
+
+<repo root>/
+└── render.yaml     — Render Blueprint manifest (the source of truth).
+                     Lives at the root because Render's "Deploy to Render"
+                     button only auto-detects blueprints at the root of
+                     the repo, not in subdirectories.
 ```
 
 For the full deployment philosophy and platform comparison, see the
