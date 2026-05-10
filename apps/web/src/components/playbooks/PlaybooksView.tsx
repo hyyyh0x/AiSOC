@@ -13,6 +13,7 @@ import useSWR from 'swr';
 import clsx from 'clsx';
 import type { Playbook, PlaybookRun } from './types';
 import { PlaybooksGallery } from './PlaybooksGallery';
+import { EmptyState, EmptyStateIcons } from '@/components/ui/EmptyState';
 
 const fetcher = (url: string) =>
   fetch(url).then((r) => {
@@ -43,10 +44,14 @@ function RunHistoryTab() {
     </div>
   );
   if (!data || data.length === 0)
+    // WS-F5 — fresh tenants haven't run anything yet; nudge toward the editor.
     return (
-      <div className="flex flex-col items-center py-20 text-gray-700">
-        <div className="text-gray-500">No playbook runs yet. Trigger a dry run from the editor.</div>
-      </div>
+      <EmptyState
+        icon={EmptyStateIcons.ledger}
+        title="No playbook runs yet"
+        description="Run history shows up after you trigger a playbook — either manually from the editor's dry-run button, or automatically when an alert matches a playbook trigger."
+        className="bg-transparent py-12"
+      />
     );
   return (
     <div className="space-y-2">
@@ -252,10 +257,29 @@ function CommunityPlaybooksTab() {
         )}
 
       {!loading && !error && items.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-16 text-zinc-500 text-sm">
-          <p>No community playbooks found.</p>
-          <p className="text-xs mt-1">Be the first to submit one!</p>
-        </div>
+        // WS-F5 — community playbooks come from the marketplace index. If
+        // search is active we treat it as a filter-miss; otherwise it's an
+        // index-not-built state.
+        <EmptyState
+          icon={EmptyStateIcons.search}
+          title={search ? 'No community playbooks match your search' : 'No community playbooks indexed yet'}
+          description={
+            search
+              ? 'Try a different search term, or browse the full catalog by clearing the search.'
+              : 'Run `pnpm marketplace:build` to regenerate the community index, or check that /marketplace/index.json is being served.'
+          }
+          action={
+            search ? (
+              <button
+                onClick={() => { setSearch(''); load('', sortBy, 1); }}
+                className="text-xs px-3 py-1.5 rounded-md border border-blue-500/40 bg-blue-500/10 text-blue-300 hover:bg-blue-500/20 transition-colors"
+              >
+                Clear search
+              </button>
+            ) : undefined
+          }
+          className="bg-transparent py-12"
+        />
       )}
 
       {!loading && items.length > 0 && (
@@ -432,18 +456,31 @@ export function PlaybooksView() {
           )}
 
           {!isLoading && !error && (!data || data.length === 0) && (
-            <div className="flex flex-col items-center justify-center py-20 text-center">
-              <div className="text-lg font-medium text-gray-400 mb-2">No playbooks yet</div>
-              <div className="text-sm text-gray-600 mb-6">
-                Create a playbook to automate your SOC response workflows
-              </div>
-              <Link
-                href="/playbooks/new"
-                className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm transition-colors"
-              >
-                Create your first playbook
-              </Link>
-            </div>
+            // WS-F5 — first-run experience. Push toward both "create your own"
+            // and "browse the community" so analysts don't have to start from
+            // a blank YAML file.
+            <EmptyState
+              icon={EmptyStateIcons.ledger}
+              title="No playbooks yet"
+              description="Playbooks automate your SOC response — isolate hosts, enrich IOCs, page on-call, post to Slack. Start from a community template or write your own from scratch."
+              action={
+                <div className="flex items-center gap-2">
+                  <Link
+                    href="/playbooks/new"
+                    className="px-3 py-1.5 rounded-md bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium transition-colors"
+                  >
+                    Create your first playbook
+                  </Link>
+                  <button
+                    onClick={() => setTab('community')}
+                    className="text-xs px-3 py-1.5 rounded-md border border-zinc-700 bg-zinc-800/40 text-zinc-300 hover:bg-zinc-800 transition-colors"
+                  >
+                    Browse community
+                  </button>
+                </div>
+              }
+              className="bg-transparent py-16"
+            />
           )}
 
           {data && data.length > 0 && <PlaybooksGallery playbooks={data} />}

@@ -3,6 +3,7 @@
 import useSWR, { mutate } from 'swr';
 import { useState } from 'react';
 import { ComplianceHeatmap } from './ComplianceHeatmap';
+import { EmptyState, EmptyStateIcons } from '@/components/ui/EmptyState';
 
 interface Evidence {
   id: string;
@@ -241,9 +242,25 @@ export function FrameworkView({ framework }: Props) {
           {/* Controls list */}
           <div className="space-y-2">
             {filtered.length === 0 && (
-              <div className="text-gray-400 text-sm py-8 text-center">
-                No controls match the current filter.
-              </div>
+              // WS-F5 — controls come from a static framework definition, so
+              // an "empty" view here is *always* a filter miss. Give the
+              // analyst a clear path back to the full list.
+              <EmptyState
+                icon={EmptyStateIcons.search}
+                title="No controls match the current filter"
+                description="Try a different status filter, or clear it to see every control in the framework."
+                action={
+                  filterStatus !== 'all' ? (
+                    <button
+                      onClick={() => setFilterStatus('all')}
+                      className="text-xs px-3 py-1.5 rounded-md border border-blue-500/40 bg-blue-500/10 text-blue-300 hover:bg-blue-500/20 transition-colors"
+                    >
+                      Show all controls
+                    </button>
+                  ) : undefined
+                }
+                className="bg-transparent py-8"
+              />
             )}
             {filtered.map((cwev) => {
               const isExpanded = expandedId === cwev.control.id;

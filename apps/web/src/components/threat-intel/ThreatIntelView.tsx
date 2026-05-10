@@ -10,6 +10,7 @@ import {
 } from '@/lib/api';
 import { clsx } from 'clsx';
 import { format } from 'date-fns';
+import { EmptyState, EmptyStateIcons } from '@/components/ui/EmptyState';
 
 // ─── Mock Data ────────────────────────────────────────────────────────────────
 // Static timestamps avoid SSR/client hydration mismatches (React error #418)
@@ -327,9 +328,36 @@ export function ThreatIntelView() {
           <span className="text-xs text-gray-500">{indicators.length} indicators</span>
         </div>
         {indicators.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-32 text-gray-600">
-            <p className="text-sm">No indicators found</p>
-          </div>
+          // WS-F5 — TI feeds rarely have a true "no IOCs ever" state in
+          // practice (the OT feed alone seeds dozens), so the most common
+          // empty path here is a filter-miss. Both copies still steer the
+          // analyst back to a useful action.
+          typeFilter !== 'all' || search ? (
+            <EmptyState
+              icon={EmptyStateIcons.search}
+              title="No indicators match these filters"
+              description="Try a different IOC type or clear the search to see the full feed."
+              action={
+                <button
+                  onClick={() => {
+                    setTypeFilter('all');
+                    setSearch('');
+                  }}
+                  className="text-xs px-3 py-1.5 rounded-md border border-blue-500/40 bg-blue-500/10 text-blue-300 hover:bg-blue-500/20 transition-colors"
+                >
+                  Clear filters
+                </button>
+              }
+              className="bg-transparent py-8"
+            />
+          ) : (
+            <EmptyState
+              icon={EmptyStateIcons.shield}
+              title="No threat intel ingested yet"
+              description="Connect a TI feed (MISP, OTX, AbuseIPDB, GreyNoise, internal STIX/TAXII) from Settings → Connectors to start enriching alerts with reputation context."
+              className="bg-transparent py-8"
+            />
+          )
         ) : (
           <div>
             {indicators.map((ioc) => <IOCRow key={ioc.id} ioc={ioc} />)}

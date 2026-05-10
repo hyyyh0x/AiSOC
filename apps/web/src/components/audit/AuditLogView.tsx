@@ -2,6 +2,8 @@
 
 import { useState, useCallback } from 'react';
 import useSWR from 'swr';
+import { EmptyState, EmptyStateIcons } from '@/components/ui/EmptyState';
+import { ErrorState } from '@/components/ui/ErrorState';
 
 interface AuditEvent {
   id: string;
@@ -156,13 +158,47 @@ export function AuditLogView() {
       {/* Table */}
       <div className="bg-gray-800/50 rounded-lg border border-gray-700 shadow-sm overflow-hidden">
         {error && !data && (
-          <div className="p-8 text-center text-red-500 text-sm">
-            Failed to load audit log.
+          <div className="p-4">
+            <ErrorState
+              title="Couldn't load audit log"
+              description="The audit log service didn't respond. Check the API or try again."
+              error={error}
+            />
           </div>
         )}
         {data && data.items.length === 0 && !isLoading && (
-          <div className="p-8 text-center text-gray-400 text-sm">
-            No audit events found.
+          // WS-F5 — audit log is *required* by SOC2/HIPAA so a true "empty"
+          // tenant is rare. Most empty paths here are filter-misses; surface
+          // a clear path back to the unfiltered view.
+          <div className="p-4">
+            {search || actionFilter || resourceFilter ? (
+              <EmptyState
+                icon={EmptyStateIcons.search}
+                title="No audit events match these filters"
+                description="Try widening the search, clearing the action/resource filter, or jumping to a different time window."
+                action={
+                  <button
+                    onClick={() => {
+                      setSearch('');
+                      setActionFilter('');
+                      setResourceFilter('');
+                      setPage(1);
+                    }}
+                    className="text-xs px-3 py-1.5 rounded-md border border-indigo-500/40 bg-indigo-500/10 text-indigo-300 hover:bg-indigo-500/20 transition-colors"
+                  >
+                    Clear filters
+                  </button>
+                }
+                className="bg-transparent py-8"
+              />
+            ) : (
+              <EmptyState
+                icon={EmptyStateIcons.audit}
+                title="No audit events yet"
+                description="Every authenticated action — case updates, rule edits, connector changes, role grants — is logged here. Events will start appearing as analysts use the platform."
+                className="bg-transparent py-8"
+              />
+            )}
           </div>
         )}
         {data && data.items.length > 0 && (

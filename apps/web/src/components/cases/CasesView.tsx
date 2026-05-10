@@ -7,6 +7,7 @@ import toast from 'react-hot-toast';
 import { casesApi, type Case, type CasesResponse } from '@/lib/api';
 import { clsx } from 'clsx';
 import { format } from 'date-fns';
+import { EmptyState, EmptyStateIcons } from '@/components/ui/EmptyState';
 
 // ─── Mock Data ────────────────────────────────────────────────────────────────
 
@@ -247,9 +248,34 @@ export function CasesView({ initialCases }: CasesViewProps = {}) {
           <div className="w-6 h-6 border-2 border-blue-500/30 border-t-blue-500 rounded-full animate-spin" />
         </div>
       ) : cases.length === 0 ? (
-        <div className="flex flex-col items-center justify-center h-48 text-gray-600">
-          <p className="text-sm">No cases found</p>
-        </div>
+        // WS-F5 — distinguish "filter miss" from "no cases ever". The former
+        // gets a "clear filters" CTA; the latter explains what cases are and
+        // where they come from so a brand-new tenant doesn't think it's broken.
+        statusFilter !== 'all' || severityFilter !== 'all' || search ? (
+          <EmptyState
+            icon={EmptyStateIcons.search}
+            title="No cases match these filters"
+            description="Try clearing the status, severity, or search filter to widen the view."
+            action={
+              <button
+                onClick={() => {
+                  setStatusFilter('all');
+                  setSeverityFilter('all');
+                  setSearch('');
+                }}
+                className="text-xs px-3 py-1.5 rounded-md border border-blue-500/40 bg-blue-500/10 text-blue-300 hover:bg-blue-500/20 transition-colors"
+              >
+                Clear filters
+              </button>
+            }
+          />
+        ) : (
+          <EmptyState
+            icon={EmptyStateIcons.case}
+            title="No cases yet"
+            description="Cases bundle related alerts, evidence, and analyst notes into a single investigation. Promote alerts to a case from the Alerts tab, or click ‘New Case’ to start a manual investigation."
+          />
+        )
       ) : (
         <div className="grid grid-cols-1 gap-3">
           {cases.map((c) => <CaseCard key={c.id} c={c} />)}

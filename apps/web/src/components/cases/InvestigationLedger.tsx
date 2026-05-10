@@ -382,9 +382,17 @@ export function InvestigationLedger({
                 Couldn&apos;t load events: {String(eventsError)}
               </p>
             ) : filteredEvents.length === 0 ? (
-              <p className="p-4 text-xs text-slate-500">
-                No events yet. {isLive && 'Waiting for the agent to emit its first step…'}
-              </p>
+              <div className="p-3">
+                <EmptyState
+                  title={isLive ? 'Waiting for the agent…' : 'No events recorded'}
+                  description={
+                    isLive
+                      ? 'The agent is still planning. Steps will stream in here as soon as it makes its first decision.'
+                      : 'This run has no events that match the active filters. Clear filters or pick a different run from the toolbar.'
+                  }
+                  className="bg-transparent py-8"
+                />
+              </div>
             ) : (
               <ol className="max-h-[640px] space-y-1 overflow-y-auto p-1">
                 {filteredEvents.map((evt) => (

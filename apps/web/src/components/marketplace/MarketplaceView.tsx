@@ -3,6 +3,8 @@
 import { useCallback, useMemo, useState } from 'react';
 import useSWR from 'swr';
 import clsx from 'clsx';
+import { EmptyState, EmptyStateIcons } from '@/components/ui/EmptyState';
+import { ErrorState } from '@/components/ui/ErrorState';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -946,23 +948,30 @@ export function MarketplaceView() {
       )}
 
       {error && (
-        <div className="rounded-lg border border-red-700/40 bg-red-900/20 p-4 text-sm text-red-300">
-          Failed to load marketplace data. Make sure{' '}
-          <code className="text-red-200">/marketplace/index.json</code> is served
-          as a static file. Run <code className="text-red-200">pnpm marketplace:build</code> to regenerate it.
-        </div>
+        <ErrorState
+          title="Couldn't load marketplace"
+          description="Make sure /marketplace/index.json is served as a static file. Run `pnpm marketplace:build` to regenerate it."
+          error={error}
+        />
       )}
 
       {!isLoading && !error && items.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-20 text-zinc-500">
-          <p className="text-sm">No items match your filters.</p>
-          <button
-            onClick={clearFilters}
-            className="mt-2 text-xs text-zinc-400 underline hover:text-zinc-200"
-          >
-            Clear filters
-          </button>
-        </div>
+        // WS-F5 — marketplace ships with a non-empty index by default, so
+        // the only realistic empty state here is a filter-miss.
+        <EmptyState
+          icon={EmptyStateIcons.search}
+          title="No marketplace items match your filters"
+          description="Try a different category or clear your filters to see all 50+ playbooks, detections, and plugins."
+          action={
+            <button
+              onClick={clearFilters}
+              className="text-xs px-3 py-1.5 rounded-md border border-blue-500/40 bg-blue-500/10 text-blue-300 hover:bg-blue-500/20 transition-colors"
+            >
+              Clear filters
+            </button>
+          }
+          className="bg-transparent py-12"
+        />
       )}
 
       {!isLoading && !error && items.length > 0 && (

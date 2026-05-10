@@ -8,6 +8,8 @@ import { alertsApi, type Alert, type AlertFilters, type ConfidenceLabel } from '
 import { clsx } from 'clsx';
 import { formatDistanceToNow } from 'date-fns';
 import { EntityRiskQueue } from './EntityRiskQueue';
+import { EmptyState, EmptyStateIcons } from '@/components/ui/EmptyState';
+import { ErrorState } from '@/components/ui/ErrorState';
 
 // Wave 1 of the AiSOC v6 capability roadmap. The "entities" tab renders the
 // rolled-up Risk-Based Alerting queue — alerts contribute time-decayed risk
@@ -379,12 +381,41 @@ function AlertsTable({
             <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
           </div>
         ) : error ? (
-          <div className="flex items-center justify-center h-32 text-red-400 text-sm">
-            Failed to load alerts
+          <div className="p-4">
+            <ErrorState
+              title="Couldn't load alerts"
+              description="The alerts feed didn't respond. Check the API service or try again."
+              error={error}
+            />
           </div>
         ) : alerts.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-32 text-gray-500">
-            <p className="text-sm">No alerts found</p>
+          <div className="p-4">
+            {/*
+              WS-F5 — distinguish "no data at all" from "filtered out". The
+              filter-aware copy is the difference between an analyst thinking
+              "the system is broken" and "I should clear my filters".
+            */}
+            {filters.severity || filters.status ? (
+              <EmptyState
+                icon={EmptyStateIcons.search}
+                title="No alerts match these filters"
+                description="Try clearing the severity or status filter to widen the search."
+                action={
+                  <button
+                    onClick={() => onFilterChange({ page: 1, pageSize: filters.pageSize ?? 25 })}
+                    className="text-xs px-3 py-1.5 rounded-md border border-blue-500/40 bg-blue-500/10 text-blue-300 hover:bg-blue-500/20 transition-colors"
+                  >
+                    Clear filters
+                  </button>
+                }
+              />
+            ) : (
+              <EmptyState
+                icon={EmptyStateIcons.alert}
+                title="No alerts yet"
+                description="Once a connector ingests events that trip a detection, alerts will appear here. Connect a data source from Settings → Connectors to start streaming."
+              />
+            )}
           </div>
         ) : (
           <div>
