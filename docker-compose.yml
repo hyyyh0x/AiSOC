@@ -498,6 +498,37 @@ services:
       - aisoc
     restart: unless-stopped
 
+  # ChatOps adapter. Holds no state — forwards `/aisoc …` slash commands and
+  # approval-card button clicks to services/api and services/actions. Runs
+  # under the `chatops` profile so a default `docker compose up` doesn't fail
+  # when the operator has not yet provisioned a Slack app or service tokens.
+  slack-bot:
+    build:
+      context: ./services/slack-bot
+      dockerfile: Dockerfile
+    container_name: aisoc-slack-bot
+    depends_on:
+      - api
+      - actions
+    ports:
+      - "127.0.0.1:8009:8089"
+    profiles:
+      - chatops
+    environment:
+      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-}
+      SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET:-}
+      AISOC_API_BASE_URL: http://api:8000
+      AISOC_ACTIONS_BASE_URL: http://actions:8085
+      AISOC_API_SERVICE_TOKEN: ${AISOC_SLACK_API_TOKEN:-}
+      AISOC_ACTIONS_SERVICE_TOKEN: ${AISOC_SLACK_ACTIONS_TOKEN:-}
+      AISOC_DEFAULT_TENANT_ID: ${AISOC_DEFAULT_TENANT_ID:-00000000-0000-0000-0000-000000000000}
+      AISOC_WEB_BASE_URL: ${AISOC_WEB_BASE_URL:-http://localhost:3000}
+      AISOC_SLACK_BOT_PORT: 8089
+      AISOC_HTTP_TIMEOUT_SECONDS: 10
+    networks:
+      - aisoc
+    restart: unless-stopped
+
   web:
     build:
       context: .
