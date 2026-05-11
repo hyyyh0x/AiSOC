@@ -79,6 +79,110 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [7.0.x] — 2026-05-10 — Endpoint telemetry wave (PR1–PR6)
+
+### Added — osctrl, FleetDM, aisoc-osquery-tls, aisoc-direct, native osquery detections, live-query playbook step, FIM, custom virtual tables
+
+Six-PR wave that closes [#44](https://github.com/beenuar/AiSOC/issues/44)
+("osctrl connector for fleet-wide osquery telemetry") and significantly extends
+osquery coverage end to end. Shipped in the v7.0 release window between the
+v7.0.0 baseline and the v7.0.1 hardening patch.
+
+#### PR1 — osctrl + FleetDM connectors
+
+- **`services/connectors/app/connectors/osctrl.py`**, **`fleetdm.py`** — Two new
+  `BaseConnector` subclasses with full `schema()`, `validate()`, `fetch_events()`,
+  and `normalize()` implementations. Schema-driven setup runs a live
+  `Test connection` round-trip before save; secrets encrypted with the
+  application-layer `CredentialVault` (Fernet AES-128-CBC + HMAC-SHA256);
+  polling on per-instance schedule via `ConnectorScheduler`.
+- **`plugins/osctrl/plugin.yaml`**, **`plugins/fleetdm/plugin.yaml`** — Marketplace
+  manifests mirroring the connector schemas. `marketplace/index.json` regenerated
+  via `pnpm marketplace:sync`.
+- **`services/connectors/tests/test_osquery_connectors.py`** — Schema contract +
+  severity heuristics tests.
+
+#### PR2 — Native osquery detection schema migration
+
+- **`detections/endpoint/osquery-*.yaml`** — 16 osquery detection rules
+  migrated from `_quarantine/` to the native schema, IDs `det-endpoint-281`
+  through `det-endpoint-296`. Coverage spans credential access, persistence,
+  lateral movement, defense evasion, and discovery on macOS, Linux (auditd),
+  and Windows.
+- **`detections/fixtures/osquery_*.json`** — Positive / negative test
+  fixtures for every migrated rule, gated by the Detection Validation
+  workflow in CI.
+
+#### PR3 — Live-query playbook step
+
+- **`services/actions/app/clients/osctrl_client.py`**,
+  **`fleetdm_client.py`**, **`aisoc_direct_client.py`** — Production-grade
+  HTTP clients with per-vendor auth, retries, and structured error handling.
+- **`services/actions/app/clients/osquery_allowlist.py`** — Strict allowlist
+  enforcing only safe SELECT-only queries against approved tables (no
+  `ATTACH`, no `INSERT`, no `pragma_*` introspection of secrets).
+- **`services/agents/app/playbook/steps/osquery_live_query.py`** — New
+  `osquery_live_query` step type. Pushes allowlisted distributed queries to a
+  single host or fleet-wide via osctrl / FleetDM / aisoc-direct with
+  HMAC-signed ChatOps approval before execution.
+
+#### PR4 — `aisoc-osquery-tls` FastAPI service + `aisoc-direct` connector
+
+- **`services/osquery-tls/`** — New first-party FastAPI service exposing
+  `/api/v1/enroll`, `/api/v1/config`, `/api/v1/log`, `/api/v1/distributed/read`,
+  `/api/v1/distributed/write`, plus `/api/v1/fim` for file-integrity events.
+  Self-hosted osquery TLS plugin endpoints are FleetDM-compatible so any
+  off-the-shelf osquery agent can enroll without a third-party SaaS hop.
+  Uses dedicated SQLite + Alembic migrations under `services/osquery-tls/db/`.
+- **`services/connectors/app/connectors/aisoc_direct.py`** + matching
+  `plugins/aisoc-direct/plugin.yaml` — Direct-from-agent ingest connector that
+  consumes the osquery-tls log stream and normalises into the standard alert
+  schema; bypasses third-party SaaS entirely.
+
+#### PR5 — Osquery packs + FIM endpoint + FIM dashboard
+
+- **`services/osquery-tls/app/osquery_packs/`** — Bundled IR / OSquery-ATT&CK /
+  FIM packs distributed to every enrolled agent on enrollment. Pack loader
+  preserves hand-crafted playbooks under `pack root` (do not `rmtree`).
+- **`services/osquery-tls/app/api/v1/endpoints/fim.py`** — File-integrity
+  monitoring endpoint. Ingests `file_events` and synthesises alerts on writes
+  to `/etc/passwd`, `/etc/shadow`, sshd configs, sudoers, and Windows
+  registry hives. FIM-specific detection IDs `det-endpoint-297..300`
+  (renumbered from 281–284 to avoid collision with osquery-macos rules).
+- **`apps/web/src/components/dashboard/FimDashboard.tsx`** — New dashboard
+  panel grouping FIM events by host, file, and severity.
+
+#### PR6 — AiSOC osquery extensions (custom virtual tables)
+
+- **`services/osquery-extensions/tables/`** — 5 custom Go-based virtual tables
+  shipping with the agent for richer endpoint visibility plus a bidirectional
+  response channel:
+  - `aisoc_browser_extensions` — installed browser extensions across Chrome,
+    Firefox, Edge, Safari profiles.
+  - `aisoc_kernel_modules` — currently loaded kernel modules with signing /
+    tainting state.
+  - `aisoc_attck_persistence` — MITRE ATT&CK persistence locations
+    (LaunchAgents, scheduled tasks, systemd units, Run keys).
+  - `aisoc_pending_actions` — pending response actions queued for the agent;
+    enables host → server → host bidirectional flow.
+  - `aisoc_alert_cache` — local cache of alerts the agent has emitted, for
+    deduplication and replay.
+- **`services/osquery-extensions/tables/pending_actions_test.go`** — Unit
+  tests for the bidirectional action queue.
+- **`docs/openapi.yaml`** regenerated to include the extensions API endpoints.
+
+#### Cross-cutting CI / housekeeping
+
+- **CI**: Detection Validation workflow now covers the 16 migrated osquery
+  rules; Python Tests, Web Build, and the osquery-tls service build are all
+  green.
+- **Lint**: `ruff format` and `ruff check --fix` applied across the new
+  `osquery-tls` service; F401 / UP017 / UP037 / I001 / W291 cleared.
+- **Marketplace**: `apps/web/public/marketplace/curated.json` re-synced from
+  `marketplace/` after the new connector / plugin manifests landed.
+
+---
+
 ## [7.0.0] — 2026-05-10
 
 ### Added — v1.0 Buyer-Value Plan: ChatOps, Digest PDF, BYOK, Air-gap, WCAG AA, Analytics

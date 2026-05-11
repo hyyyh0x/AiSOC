@@ -191,6 +191,80 @@ Implemented and reviewed by Beenu Arora <beenu@cyble.com>.
 
 ---
 
+## v7.0.x — Endpoint telemetry wave + hardening (2026-05-10)
+
+Six-PR feature wave that closes [#44](https://github.com/beenuar/AiSOC/issues/44)
+("osctrl connector for fleet-wide osquery telemetry") and significantly extends
+osquery coverage end to end. All six PRs were implemented sequentially as part of
+the v7.0 release window and then patched through 7.0.1 → 7.0.3.
+
+### Endpoint telemetry — osquery feature wave (PR1–PR6)
+
+- [x] **PR1 — osctrl + FleetDM connectors** (`services/connectors/app/connectors/osctrl.py`,
+      `fleetdm.py`). Schema-driven setup, live `Test connection` round-trip, secrets
+      encrypted via `CredentialVault`, polling on per-instance schedule, plus marketplace
+      manifests at `plugins/osctrl/plugin.yaml` and `plugins/fleetdm/plugin.yaml`.
+- [x] **PR2 — Native osquery detection schema migration** — 16 osquery rules
+      (`detections/endpoint/osquery-*.yaml`, IDs `det-endpoint-281..296`) migrated from
+      `_quarantine/` to the native schema, with positive/negative test fixtures
+      (`detections/fixtures/osquery_*.json`) gated by the Detection Validation workflow.
+- [x] **PR3 — Live-query playbook step** (`services/actions/app/clients/osctrl_client.py`,
+      `fleetdm_client.py`, `osquery_allowlist.py`, `services/agents/app/playbook/steps/osquery_live_query.py`).
+      Allowlisted distributed queries pushed to single hosts or fleet-wide via
+      osctrl/FleetDM with HMAC-signed ChatOps approval.
+- [x] **PR4 — `aisoc-osquery-tls` FastAPI service + `aisoc-direct` agent connector**
+      (`services/osquery-tls/`, `services/connectors/app/connectors/aisoc_direct.py`).
+      First-party self-hosted osquery TLS plugin, FleetDM-compatible config/log endpoints,
+      direct-from-agent ingest path that bypasses third-party SaaS.
+- [x] **PR5 — Osquery packs + FIM endpoint + FIM dashboard**
+      (`services/osquery-tls/app/api/v1/endpoints/fim.py`, `apps/web/src/components/dashboard/FimDashboard.tsx`).
+      Bundled IR / OSquery-ATT&CK / FIM packs; ingests `file_events` and synthesises
+      alerts on writes to `/etc/passwd`, `/etc/shadow`, sshd configs, sudoers, Windows
+      registry hives. FIM-specific detection IDs `det-endpoint-297..300`.
+- [x] **PR6 — AiSOC osquery extensions** (`services/osquery-extensions/tables/*.go`).
+      5 custom Go-based virtual tables: `aisoc_browser_extensions`, `aisoc_kernel_modules`,
+      `aisoc_attck_persistence`, `aisoc_pending_actions`, `aisoc_alert_cache` — ship
+      richer endpoint visibility plus a bidirectional response channel.
+
+### Patch releases
+
+#### v7.0.1 — Web app hardening (CodeQL + Turbopack)
+
+- [x] **42 CodeQL code-scanning alerts cleared** (`py/unused-global-variable`,
+      `py/cyclic-import`, `py/empty-except`, `py/log-injection`,
+      `py/clear-text-logging-sensitive-data`, `py/incomplete-url-substring-sanitization`,
+      `py/stack-trace-exposure`, `py/call/wrong-arguments`, `py/unused-import`,
+      `js/unused-local-variable`).
+- [x] **`apps/web/next.config.js`** — Removed deprecated `eslint.ignoreDuringBuilds`
+      key Next.js 16 no longer accepts; added `turbopack.root` for workspace package
+      resolution.
+- [x] **`apps/web/src/app/layout.tsx`** — Added `suppressHydrationWarning` to `<html>`
+      so the render-blocking `themeBootstrapScript` can write `data-theme` /
+      `data-theme-preference` / `style.colorScheme` without React reporting an
+      attribute mismatch.
+
+#### v7.0.2 — Version alignment + landing-page footer + docs
+
+- [x] **`apps/web/package.json`** bumped to `7.0.2`; sidebar shows `v7.0.2` dynamically.
+- [x] **`apps/web/src/components/landing/Footer.tsx`** — Replaced hard-coded `v6.1.0`
+      with a dynamic import of `package.json`.
+- [x] **`README.md`** — Added `osquery-tls` (port 8090) and `osquery-extensions` to the
+      services / Swagger / directory-tree / dev-surface tables.
+
+#### v7.0.3 — Structural hydration fix + font preload
+
+- [x] **`apps/web/src/components/layout/AppShell.tsx`** — Wrapped `<DemoBanner />` in
+      a new `<ClientOnly>` boundary so the banner (which reads
+      `NEXT_PUBLIC_DEMO_MODE`) is never server-rendered. Eliminates React
+      hydration error #418 caused by stale env-var inlining producing a structural
+      tree mismatch (server saw `<button>` from `Sidebar`, client expected `<div>`
+      from `DemoBanner`).
+- [x] **`apps/web/src/app/layout.tsx`** — Added `preload: false` to the
+      `JetBrains_Mono` `next/font/google` config; eliminates "preloaded but not
+      used within a few seconds" Chrome warnings without any visible FOUT.
+
+---
+
 ## v8.0 — Planned
 
 - Mobile responder console (React Native) — triage and acknowledge from phone
@@ -208,10 +282,7 @@ Implemented and reviewed by Beenu Arora <beenu@cyble.com>.
 
 ## Ideas Backlog (unscheduled)
 
-- NL→query: "show me failed logins from new ASNs last 24h" → ES|QL / KQL
-- AI-generated threat intelligence briefings from public feeds
-- Automated IOC sharing to community MISP instances
-- Embedded red-team scoring (ATT&CK coverage %) visible on dashboard
 - "Explain this alert" button using LLM with enrichment context
-- Incident cost estimator (breach impact calculator)
-- SLA breach predictor (ML model on historical MTTR data)
+- Browser-extension recorder for analyst playbook capture
+- Voice-driven incident commander (TTS / STT for hands-free triage)
+- Automated retro/blameless post-mortem drafting from case timeline

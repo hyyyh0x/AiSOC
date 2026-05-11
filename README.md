@@ -123,7 +123,8 @@ Full guide: [docs/integrations/mcp](apps/docs/docs/integrations/mcp.md). Source:
 
 AiSOC bundles the components a SOC normally pieces together from separate vendors:
 
-- **Connect data sources in three clicks** — a 26-connector click-and-connect catalog spans EDR/XDR (CrowdStrike Falcon, SentinelOne, Microsoft Defender XDR, Palo Alto Cortex XDR), SIEM (Splunk, Microsoft Sentinel, Elastic), cloud (AWS Security Hub, Azure Activity, GCP Cloud Audit, GCP SCC, Wiz), identity (Okta, Microsoft Entra, Duo Security, 1Password), SaaS (Microsoft 365 audit, Google Workspace, Cloudflare, Proofpoint, ServiceNow, Jira), VCS (GitHub, Snyk), and network (Tailscale, Zscaler). Each connector renders a schema-driven form, runs a live `Test connection` round-trip before save, encrypts every secret with the application-layer `CredentialVault` (Fernet AES-128-CBC + HMAC-SHA256), and starts polling on a per-instance schedule. Walkthrough: [docs/connectors](apps/docs/docs/connectors/index.md). Threat model + key rotation: [docs/operations/credentials](apps/docs/docs/operations/credentials.md).
+- **Connect data sources in three clicks** — a 45-connector click-and-connect catalog spans EDR/XDR (CrowdStrike Falcon, SentinelOne, Microsoft Defender XDR, Palo Alto Cortex XDR, Cortex XSIAM, VMware Carbon Black, Trellix Helix, Trend Vision One), SIEM (Splunk, Microsoft Sentinel, Elastic, Sumo Logic, Datadog Cloud SIEM, Google Chronicle, Rapid7 InsightIDR), cloud (AWS Security Hub, Azure Activity, Azure Defender, GCP Cloud Audit, GCP SCC, Wiz, Lacework, Tenable), identity (Okta, Microsoft Entra, Auth0, Duo Security, 1Password), SaaS (Microsoft 365 audit, Google Workspace, Cloudflare, Proofpoint, Mimecast, ServiceNow, Jira, Slack audit, Salesforce, Email inbox), VCS (GitHub, Snyk), endpoint fleet (osctrl, FleetDM for fleet-wide osquery), and network (Tailscale, Zscaler, Cisco Umbrella). Each connector renders a schema-driven form, runs a live `Test connection` round-trip before save, encrypts every secret with the application-layer `CredentialVault` (Fernet AES-128-CBC + HMAC-SHA256), and starts polling on a per-instance schedule. Walkthrough: [docs/connectors](apps/docs/docs/connectors/index.md). Threat model + key rotation: [docs/operations/credentials](apps/docs/docs/operations/credentials.md).
+- **Own your endpoint telemetry** — first-party `aisoc-osquery-tls` FastAPI service (`services/osquery-tls/`) and `aisoc-direct` lightweight agent connector ship a self-hosted osquery TLS plugin, FleetDM-compatible config/log endpoints, and a direct-from-agent ingest path that bypasses third-party SaaS. Built-in **file integrity monitoring (FIM)** endpoint (`services/osquery-tls/app/api/v1/endpoints/fim.py`) ingests `file_events` and synthesizes alerts on writes to `/etc/passwd`, `/etc/shadow`, sshd configs, sudoers, and Windows registry hives; bundled osquery packs cover incident response, OSquery-ATT&CK, and FIM out of the box. **16 native osquery detections** (`detections/endpoint/osquery-*.yaml`, IDs `det-endpoint-281..296`) cover credential access, persistence, lateral movement, defense evasion, and discovery — paired with positive/negative test fixtures (`detections/fixtures/osquery_*.json`) and CI-gated against the Detection Validation workflow. **Live-query playbook step** (`osquery_live_query`) lets responders push allowlisted distributed queries to single hosts or fleet-wide via osctrl/FleetDM with HMAC-signed ChatOps approval. **5 custom Go-based virtual tables** (`services/osquery-extensions/`) extend the agent with `aisoc_browser_extensions`, `aisoc_kernel_modules`, `aisoc_attck_persistence`, `aisoc_pending_actions`, and `aisoc_alert_cache` for richer endpoint visibility and bidirectional response. Walkthroughs: [docs/connectors/osctrl](apps/docs/docs/connectors/osctrl.md), [docs/connectors/fleetdm](apps/docs/docs/connectors/fleetdm.md).
 - **Ingest** events from any connector into a Kafka spine.
 - **Correlate** them in real time with deduplication, ML scoring, per-alert confidence scoring, and Sigma/YARA detection.
 - **Roll up signal onto entities** — Risk-Based Alerting accumulates time-decayed risk points on the user, host, IP, and domain each alert touches, promotes them to entity-incidents at a tunable threshold, and surfaces an entity-centric queue in the alerts UI. Hits the published 2026 KPI bar of ≥ 50:1 alert-to-incident ratio (CI-gated in [`services/fusion/tests/test_entity_risk.py`](services/fusion/tests/test_entity_risk.py)).
@@ -877,11 +878,21 @@ terraform apply
 
 ## Roadmap
 
-The public roadmap lives in [ROADMAP.md](ROADMAP.md). The v4.1, v5.0, v5.1, v5.2, and v6.0 items have shipped (Investigation Ledger, Ambient Copilot, Responder PWA, public eval harness, MCP server, and the one-shot demo). The v6.1 market-driven feature expansion has shipped (autonomous triage agents, investigation chat, coverage advisor, shifts, EASM, MSSP dashboard, noise tuning, team analytics, STIX/TAXII publishing, automated compliance evidence, AI-generated incident reports, ten new connectors). Next:
+The public roadmap lives in [ROADMAP.md](ROADMAP.md). All releases through **v7.0.3** have shipped, including:
 
-- v6.2 — Federated threat intel sharing across self-hosted instances
-- v6.3 — Multi-region active-active with CRDTs for case sync
-- v6.4 — Agent-authored detections with human-in-the-loop review
+- **v6.0 / v6.1** — Investigation Ledger, Ambient Copilot, Responder PWA, public eval harness, MCP server, one-shot demo, autonomous triage agents, investigation chat, coverage advisor, shifts, EASM, MSSP dashboard, STIX/TAXII publishing, automated compliance evidence, AI-generated incident reports.
+- **v7.0** — v1.0 buyer-value plan (16 workstreams): SBOM/SLSA supply chain, threat-intel attribution, executive digest PDF, BYOK per-tenant LLM credentials, air-gap appliance, WCAG 2.2 AA accessibility, ChatOps, telemetry/analytics opt-in, one-click Render deploy.
+- **v7.0.1 — v7.0.3** — Endpoint telemetry wave: `osctrl` and `FleetDM` connectors, `aisoc-osquery-tls` FastAPI service, `aisoc-direct` agent connector, 16 native osquery detections (`det-endpoint-281..296`), live-query playbook step, osquery packs + FIM pipeline, 5 custom osquery virtual tables; plus 42 CodeQL alert resolutions and the `ClientOnly`/font-preload hydration fixes.
+
+Next (**v8.0** — see [ROADMAP.md](ROADMAP.md)):
+
+- Mobile responder console (React Native) — triage and acknowledge from phone
+- Plugin marketplace v3 (commercial plugins, revenue sharing, signed publishing)
+- NL→query: `"show me failed logins from new ASNs last 24h"` → ES|QL / KQL
+- AI-generated threat intel briefings from public feeds
+- Embedded red-team scoring (live ATT&CK coverage % widget)
+- SLA breach predictor (ML on historical MTTR data) and incident cost estimator
+- SOC-in-a-box one-click cloud deploy (Terraform module for AWS / GCP)
 
 ---
 
