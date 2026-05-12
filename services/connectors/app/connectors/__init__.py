@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from app.connectors.auditd import AuditdConnector
 from app.connectors.auth0 import Auth0Connector
 from app.connectors.aws_cloudtrail import AWSCloudTrailConnector
 from app.connectors.aws_guardduty import AWSGuardDutyConnector
@@ -65,6 +66,7 @@ from app.connectors.tailscale import TailscaleConnector
 from app.connectors.tenable import TenableConnector
 from app.connectors.trellix_helix import TrellixHelixConnector
 from app.connectors.trend_vision_one import TrendVisionOneConnector
+from app.connectors.wazuh import WazuhConnector
 from app.connectors.wiz import WizConnector
 from app.connectors.zscaler import ZscalerConnector
 
@@ -80,6 +82,7 @@ _CONNECTOR_CLASSES: tuple[type[BaseConnector], ...] = (
     AWSSecurityHubConnector,
     AWSVPCFlowLogsConnector,
     Auth0Connector,
+    AuditdConnector,
     AzureActivityConnector,
     AzureDefenderConnector,
     AzureEntraConnector,
@@ -123,6 +126,7 @@ _CONNECTOR_CLASSES: tuple[type[BaseConnector], ...] = (
     TenableConnector,
     TrellixHelixConnector,
     TrendVisionOneConnector,
+    WazuhConnector,
     WizConnector,
     ZscalerConnector,
 )
@@ -174,6 +178,7 @@ __all__ = [
     "AWSSecurityHubConnector",
     "AWSVPCFlowLogsConnector",
     "Auth0Connector",
+    "AuditdConnector",
     "AzureActivityConnector",
     "AzureDefenderConnector",
     "AzureEntraConnector",
@@ -222,6 +227,7 @@ __all__ = [
     "TenableConnector",
     "TrellixHelixConnector",
     "TrendVisionOneConnector",
+    "WazuhConnector",
     "WizConnector",
     "ZscalerConnector",
     "get_connector_class",

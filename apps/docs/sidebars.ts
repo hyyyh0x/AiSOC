@@ -15,6 +15,7 @@ const sidebars: SidebarsConfig = {
         "concepts/cases",
         "concepts/playbooks",
         "concepts/detections",
+        "concepts/live-actions",
       ],
     },
     {
@@ -51,8 +52,10 @@ const sidebars: SidebarsConfig = {
         "connectors/github",
         "connectors/tailscale",
         "connectors/osctrl",
+        "connectors/wazuh",
         "connectors/fleetdm",
         "connectors/osquery-extensions",
+        "connectors/auditd",
         "connectors/wiz",
         "connectors/aws-security-hub",
         "connectors/lacework",
@@ -84,6 +87,8 @@ const sidebars: SidebarsConfig = {
         "operations/air-gapped",
         "operations/theming",
         "operations/upgrades",
+        "operations/notifications",
+        "operations/case-reports",
         "operations/troubleshooting",
         "operations/faq",
         "operations/adoption-questions",
@@ -98,12 +103,14 @@ const sidebars: SidebarsConfig = {
         "plugins/hello-plugin",
         "plugins/go-sdk",
         "plugins/publishing",
+        "plugins/cli",
+        "plugins/lifecycle",
       ],
     },
     {
       type: "category",
       label: "Integrations",
-      items: ["integrations/mcp"],
+      items: ["integrations/mcp", "integrations/misp-push"],
     },
     {
       type: "category",
@@ -113,7 +120,12 @@ const sidebars: SidebarsConfig = {
     {
       type: "category",
       label: "Deployment",
-      items: ["deployment/docker", "deployment/kubernetes", "deployment/env-vars"],
+      items: [
+        "deployment/docker",
+        "deployment/kubernetes",
+        "deployment/gcp",
+        "deployment/env-vars",
+      ],
     },
     {
       type: "category",
