@@ -37,6 +37,7 @@ const sidebars: SidebarsConfig = {
       items: [
         "connectors/index",
         "connectors/hello-connector",
+        "connectors/endpoint-decision-matrix",
         "connectors/api-coverage",
         "connectors/universal-capture",
         "connectors/azure-entra",
@@ -66,7 +67,7 @@ const sidebars: SidebarsConfig = {
     {
       type: "category",
       label: "Detections",
-      items: ["detections/coverage"],
+      items: ["detections/coverage", "detections/hello-hunt"],
     },
     {
       type: "category",
@@ -94,6 +95,7 @@ const sidebars: SidebarsConfig = {
       items: [
         "plugins/overview",
         "plugins/python-sdk",
+        "plugins/hello-plugin",
         "plugins/go-sdk",
         "plugins/publishing",
       ],
