@@ -30,7 +30,7 @@ const sidebars: SidebarsConfig = {
     {
       type: "category",
       label: "Console",
-      items: ["console/queue"],
+      items: ["console/queue", "console/rule-tuning"],
     },
     {
       type: "category",

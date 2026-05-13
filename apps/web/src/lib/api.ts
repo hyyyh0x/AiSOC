@@ -2854,6 +2854,187 @@ export const detectionProposalsApi = {
     ),
 };
 
+// ─── Detection Rule Tuning Workbench (PR-6 / v1.5 §W8) ───────────────────────
+//
+// The tuning workbench replaces the static /noise-tuning prototype with a live
+// projection of ``DetectionRule`` rows into analyst-actionable suggestions.
+// The backend is intentionally cheap — every projection is derived from
+// already-materialised fields (``fp_rate``, ``total_hits``, ``confidence``,
+// ``last_triggered``, ``status``) so a tenant with thousands of imported Sigma
+// rules can still triage without hammering the alerts table.
+//
+// Three verbs ship here:
+//   • ``list`` / ``summary`` — read-only projection (``rules:read``).
+//   • ``apply`` — mechanically tighten a rule (``rules:write``), bumps version.
+//   • ``dismiss`` / ``autoTune`` — record analyst intent (``rules:write``).
+//
+// See ``services/api/app/services/rule_tuning.py`` for the authoritative
+// wire shape; the types below mirror its Pydantic models 1:1.
+
+export type TuningSuggestion =
+  | 'disable'
+  | 'add_suppression'
+  | 'raise_threshold'
+  | 'tune_confidence'
+  | 'review_stale'
+  | 'healthy';
+
+export type TuningAction =
+  | 'raise_threshold'
+  | 'add_suppression'
+  | 'disable'
+  | 'acknowledge';
+
+export interface TuningEntry {
+  rule_id: string;
+  name: string;
+  description: string | null;
+  category: string;
+  severity: string;
+  status: string;
+  enabled: boolean;
+  confidence: number;
+  /** Materialised false-positive rate in ``[0, 1]``. */
+  fp_rate: number;
+  total_hits: number;
+  /** ISO-8601 timestamp of the rule's last hit; ``null`` if it has never fired. */
+  last_triggered_at: string | null;
+  tags: string[];
+  mitre_tactics: string[];
+  mitre_techniques: string[];
+  version: number;
+  updated_at: string;
+
+  suggestion: TuningSuggestion;
+  /** Server-side ordering weight — already sorted descending in ``entries``. */
+  score: number;
+  reasons: string[];
+  auto_tune: boolean;
+  /** Set when an analyst has dismissed the rule from the default view. */
+  dismissed_at: string | null;
+  /** Most recent tuning action applied to this rule (``raise_threshold`` …). */
+  last_action: string | null;
+  last_action_at: string | null;
+}
+
+export interface TuningSummary {
+  total_rules: number;
+  actionable: number;
+  healthy: number;
+  disable_count: number;
+  add_suppression_count: number;
+  raise_threshold_count: number;
+  tune_confidence_count: number;
+  review_stale_count: number;
+  auto_tune_enabled: number;
+  /** Average ``fp_rate`` across classified rules, ``[0, 1]``. */
+  average_fp_rate: number;
+  /** Count of rules whose ``fp_rate`` is at or above the noisy threshold. */
+  high_fp_count: number;
+}
+
+export interface TuningFilters {
+  severity: string | null;
+  suggestion: string | null;
+  search: string | null;
+  enabled_only: boolean;
+  include_dismissed: boolean;
+  page: number;
+  page_size: number;
+}
+
+export interface TuningResponse {
+  entries: TuningEntry[];
+  summary: TuningSummary;
+  /** Echo of the filters that built this response. */
+  filters: TuningFilters;
+  total: number;
+  generated_at: string;
+}
+
+export interface TuningListParams {
+  severity?: string;
+  suggestion?: TuningSuggestion;
+  search?: string;
+  enabled_only?: boolean;
+  include_dismissed?: boolean;
+  page?: number;
+  page_size?: number;
+}
+
+export interface ApplyTuningRequest {
+  action: TuningAction;
+  note?: string | null;
+  /** Override threshold to set when ``action === 'raise_threshold'``. */
+  threshold?: number | null;
+  /** Free-text reason recorded with the suppression placeholder. */
+  suppression_reason?: string | null;
+}
+
+export interface DismissTuningRequest {
+  reason?: string | null;
+}
+
+export interface AutoTuneRequest {
+  enabled: boolean;
+}
+
+export const tuningApi = {
+  /**
+   * Fetch the rule tuning workbench feed.
+   *
+   * The ``summary`` block is computed across the *entire classified
+   * population* (not the current page), so the header tiles stay stable
+   * as analysts paginate. Dismissed rules are excluded by default — pass
+   * ``include_dismissed: true`` when auditing what's been hidden.
+   */
+  list: (params: TuningListParams = {}) =>
+    request<TuningResponse>('/api/v1/detection/tuning', {
+      params: params as Record<string, string | number | boolean>,
+    }),
+
+  /**
+   * Cheap summary-only endpoint. Used by the sidebar badge and the
+   * upcoming /console dashboard tile so they don't have to fetch the
+   * full feed just to render counts.
+   */
+  summary: () => request<TuningSummary>('/api/v1/detection/tuning/summary'),
+
+  /**
+   * Mechanically apply a tuning suggestion. ``raise_threshold``,
+   * ``add_suppression``, and ``disable`` mutate the rule and bump
+   * ``DetectionRule.version``; ``acknowledge`` is a no-op + audit. The
+   * server returns the re-projected entry so the UI can refresh in place.
+   */
+  apply: (ruleId: string, body: ApplyTuningRequest) =>
+    request<TuningEntry>(`/api/v1/detection/tuning/${ruleId}/apply`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  /**
+   * Hide a rule from the default workbench view without touching its
+   * semantics. Dismissed rules reappear with ``include_dismissed: true``.
+   */
+  dismiss: (ruleId: string, body: DismissTuningRequest = {}) =>
+    request<TuningEntry>(`/api/v1/detection/tuning/${ruleId}/dismiss`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  /**
+   * Flip the per-rule ``auto_tune`` opt-in flag. Stored under
+   * ``suppression_config.auto_tune`` so future automated tuners know
+   * they're allowed to touch the rule. Flipping does *not* trigger any
+   * immediate mutation.
+   */
+  autoTune: (ruleId: string, enabled: boolean) =>
+    request<TuningEntry>(`/api/v1/detection/tuning/${ruleId}/auto_tune`, {
+      method: 'POST',
+      body: JSON.stringify({ enabled } satisfies AutoTuneRequest),
+    }),
+};
+
 // ─── AI Copilot ──────────────────────────────────────────────────────────────
 
 export type CopilotRole = 'user' | 'assistant' | 'system';
@@ -4143,6 +4324,7 @@ export default {
   graph: graphApi,
   detection: detectionApi,
   detectionProposals: detectionProposalsApi,
+  tuning: tuningApi,
   copilot: copilotApi,
   contextual: contextualApi,
   ledger: ledgerApi,

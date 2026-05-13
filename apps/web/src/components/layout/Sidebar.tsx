@@ -194,6 +194,11 @@ const navSections: NavSection[] = [
         icon: <ChartBarIcon />,
       },
       {
+        label: 'Detection Tuning',
+        href: '/detection/tuning',
+        icon: <ChartBarIcon />,
+      },
+      {
         label: 'Shifts',
         href: '/shifts',
         icon: <ClockIcon />,
@@ -287,11 +292,6 @@ const navSections: NavSection[] = [
         label: 'Compliance',
         href: '/compliance',
         icon: <ShieldIcon />,
-      },
-      {
-        label: 'Noise Tuning',
-        href: '/noise-tuning',
-        icon: <ChartBarIcon />,
       },
       {
         label: 'MSSP Dashboard',
