@@ -24,6 +24,7 @@ The companion page [Credentials & secrets](./credentials) covers connector-crede
 | **Plugin verification** | Ed25519 signature verification on plugin manifests | Marketplace + private plugins |
 | **LLM prompt safety** | Enrichment / alert text sanitised before reaching the model; outputs revalidated against schema | All investigator-agent LLM calls |
 | **Transport** | TLS terminated at the ingress; service-mesh mTLS optional | All traffic |
+| **Browser origin policy** | `AISOC_CORS_ORIGINS` allow-list with production wildcard-plus-credentials guard | Every Python, Go, and TypeScript service |
 
 ## Identity and authentication
 
@@ -241,6 +242,17 @@ For service-to-service traffic between the API, ingest, fusion, and agents, mTLS
 
 The ingest service exposes the public `/v1/ingest/batch` endpoint that connectors push into. It requires either a connector-scoped API key or a signed JWT with the `connector` role; raw events from unauthenticated callers are rejected at the gateway.
 
+### CORS
+
+CORS is configured the same way for every service (Python, Go, and the TypeScript realtime service) through one environment variable: `AISOC_CORS_ORIGINS` (canonical) with `CORS_ORIGINS` kept as a legacy alias. The full list of variables, defaults, and per-service notes is documented in [Deployment → Environment variables → CORS configuration](../deployment/env-vars#cors-configuration).
+
+The important security properties:
+
+- **Production wildcard guard.** The shared CORS helper (`services/api/app/core/cors.py`, vendored byte-identical into every Python service) and the TypeScript guard in `services/realtime/src/index.ts` **refuse to start** if the allow-list contains `*` while credentials are enabled and `AISOC_ENV` / `ENVIRONMENT` / `APP_ENV` is `production` or `prod`. This blocks the canonical CORS misconfiguration — wildcard origin + `Access-Control-Allow-Credentials: true` — before the deploy ever serves a request.
+- **Dev convenience without footguns.** Outside production the same combination logs a warning and silently disables credentials so a stray `export CORS_ORIGINS=*` doesn't break local development.
+- **Per-service credential posture.** The `api`, `agents`, `connectors`, and `realtime` services run with credentials enabled because the browser console sends a session cookie. The `ueba`, `honeytokens`, and `purple-team` services run with `allow_credentials=false` and are safe with wildcard origins even in production. The Go services (`ingest`, `enrichment`) are token-authenticated per request and also run without credentials.
+- **No per-service drift.** Adding a new console subdomain means setting `AISOC_CORS_ORIGINS` once at the deployment layer — no code change in any service.
+
 ## Playbook outbound traffic — SSRF guard
 
 Playbook `http_request` and `notify` steps run inside the agents service and can reach arbitrary URLs supplied by playbook authors. To keep this from being abused as a metadata-service or internal-network pivot, every outbound URL is validated by the SSRF guard before any socket is opened:
@@ -267,6 +279,7 @@ When you move from `pnpm aisoc:demo` to a production deployment, walk through th
 - [ ] Configure `AISOC_TRUSTED_PROXIES` to the CIDR(s) of your ingress / load balancer so `actor_ip` is sourced from `X-Forwarded-For` instead of the immediate TCP peer. Leave empty if the API is exposed directly to clients.
 - [ ] Schedule a periodic `verify_chain()` job against an offsite read replica or a CSV export of the `audit_log` table and alert on any verification failure.
 - [ ] Confirm TLS is terminated at the ingress and that internal traffic is on a private network.
+- [ ] Set `AISOC_CORS_ORIGINS` to an explicit allow-list (your console domains) and `AISOC_ENV=production`. Confirm services refuse to start if the allow-list contains `*` — that's the wildcard guard doing its job.
 - [ ] Enable mTLS between services if you're running on Kubernetes with a mesh.
 - [ ] Subscribe to the AiSOC GitHub Security Advisories for vulnerability notifications.
 
