@@ -19,6 +19,8 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
 from app.context import ContextBundle
+from app.llm import safe_ainvoke
+from app.prompt_serialization import format_extra_fields_for_llm, summarize_structure_for_llm
 from app.models.state import AgentStatus, InvestigationState
 
 logger = structlog.get_logger()
@@ -70,14 +72,22 @@ def _build_phishing_context(state: InvestigationState) -> str:
             parts.append(f"{label}: {raw[key]}")
 
     if raw.get("urls"):
-        parts.append(f"URLs found: {json.dumps(raw['urls'], default=str)}")
+        parts.append(
+            "URLs found:\n"
+            + summarize_structure_for_llm(raw["urls"], label="urls", max_lines=24, max_depth=2)
+        )
     if raw.get("url"):
         parts.append(f"Primary URL: {raw['url']}")
     if raw.get("domain"):
         parts.append(f"Domain: {raw['domain']}")
 
     if raw.get("attachment_hashes"):
-        parts.append(f"Attachment hashes: {json.dumps(raw['attachment_hashes'])}")
+        parts.append(
+            "Attachment hashes:\n"
+            + summarize_structure_for_llm(
+                raw["attachment_hashes"], label="attachment_hashes", max_lines=16, max_depth=1
+            )
+        )
     if raw.get("file_hash"):
         parts.append(f"File hash: {raw['file_hash']}")
 
@@ -117,7 +127,7 @@ def _build_phishing_context(state: InvestigationState) -> str:
     }
     if extra_keys:
         extras = {k: raw[k] for k in sorted(extra_keys)[:8]}
-        parts.append(f"Additional fields: {json.dumps(extras, default=str)}")
+        parts.append("Additional fields:\n" + format_extra_fields_for_llm(extras, max_keys=8))
 
     return "\n".join(parts)
 
@@ -186,11 +196,12 @@ async def run_phishing(
 
     t0 = time.monotonic()
     try:
-        response = await llm.ainvoke(
+        response = await safe_ainvoke(
+            llm,
             [
                 SystemMessage(content=_SYSTEM_PROMPT),
                 HumanMessage(content=prompt_context),
-            ]
+            ],
         )
         result = _parse_response(response.content)
     except Exception as exc:

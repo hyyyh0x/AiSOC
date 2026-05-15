@@ -19,7 +19,9 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
 from app.context import ContextBundle
+from app.llm import safe_ainvoke
 from app.models.state import AgentStatus, InvestigationState
+from app.prompt_serialization import format_extra_fields_for_llm, summarize_structure_for_llm
 
 logger = structlog.get_logger()
 
@@ -113,10 +115,20 @@ def _build_insider_context(state: InvestigationState) -> str:
         parts.append(f"Destination domain: {raw['destination_domain']}")
 
     if raw.get("usb_events"):
-        parts.append(f"USB events: {json.dumps(raw['usb_events'], default=str)[:400]}")
+        parts.append(
+            "USB events:\n"
+            + summarize_structure_for_llm(
+                raw["usb_events"], label="usb_events", max_lines=24, max_depth=2
+            )
+        )
 
     if raw.get("recent_activity"):
-        parts.append(f"Recent activity: {json.dumps(raw['recent_activity'], default=str)[:400]}")
+        parts.append(
+            "Recent activity:\n"
+            + summarize_structure_for_llm(
+                raw["recent_activity"], label="recent_activity", max_lines=24, max_depth=2
+            )
+        )
 
     if raw.get("baseline_deviation"):
         parts.append(f"Baseline deviation: {raw['baseline_deviation']}")
@@ -144,7 +156,7 @@ def _build_insider_context(state: InvestigationState) -> str:
     }
     if extra_keys:
         extras = {k: raw[k] for k in sorted(extra_keys)[:8]}
-        parts.append(f"Additional fields: {json.dumps(extras, default=str)}")
+        parts.append("Additional fields:\n" + format_extra_fields_for_llm(extras, max_keys=8))
 
     return "\n".join(parts)
 
@@ -218,11 +230,12 @@ async def run_insider_threat(
 
     t0 = time.monotonic()
     try:
-        response = await llm.ainvoke(
+        response = await safe_ainvoke(
+            llm,
             [
                 SystemMessage(content=_SYSTEM_PROMPT),
                 HumanMessage(content=prompt_context),
-            ]
+            ],
         )
         result = _parse_response(response.content)
     except Exception as exc:

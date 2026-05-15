@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 import structlog
@@ -168,6 +169,46 @@ class AzureDefenderConnector(BaseConnector):
             alerts = resp.json().get("value", [])
 
         return [self.normalize(a) for a in alerts]
+
+    async def get_resource_config(
+        self,
+        resource_id: str,
+        at_ts: str | None = None,
+    ) -> dict[str, Any]:
+        """Fetch a single ``alerts_v2`` record by Graph alert id (``external_id``)."""
+        if not (resource_id or "").strip():
+            return {}
+        alert_id = resource_id.strip()
+        url = f"{_GRAPH_BASE}/security/alerts_v2/{quote(alert_id, safe='')}"
+
+        if not self._access_token:
+            await self._authenticate()
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(url, headers=self._headers())
+            if resp.status_code == 401:
+                logger.warning(
+                    "azure_defender.get_resource_config_unauthorized",
+                    alert_id=str(alert_id).replace("\r", "").replace("\n", " ")[:256],
+                )
+                await self._authenticate()
+                resp = await client.get(url, headers=self._headers())
+            if resp.status_code != 200:
+                logger.warning(
+                    "azure_defender.get_resource_config_failed",
+                    status=resp.status_code,
+                    alert_id=str(alert_id).replace("\r", "").replace("\n", " ")[:256],
+                    body=str(resp.text).replace("\r", "").replace("\n", " ")[:300],
+                )
+                return {}
+        try:
+            body = resp.json()
+        except Exception:  # noqa: BLE001
+            return {}
+        out: dict[str, Any] = {"raw": body, "snapshot_freshness": "live"}
+        if at_ts:
+            out["snapshot_requested_at"] = at_ts
+        return out
 
     # ----------------------- normalize --------------------------
 

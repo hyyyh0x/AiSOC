@@ -333,3 +333,69 @@ async def test_azure_defender_fetch_alerts_returns_normalized_events():
     assert len(events) == 1
     assert events[0]["severity"] == "high"
     assert events[0]["source"] == "azure_defender"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_azure_defender_get_resource_config_empty_id():
+    connector = AzureDefenderConnector(_TENANT, _CLIENT, _SECRET)
+    assert await connector.get_resource_config("") == {}
+    assert await connector.get_resource_config("   ") == {}
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_azure_defender_get_resource_config_success():
+    respx.post(f"https://login.microsoftonline.com/{_TENANT}/oauth2/v2.0/token").mock(
+        return_value=httpx.Response(200, json={"access_token": "abc", "expires_in": 3600})
+    )
+    detail_url = "https://graph.microsoft.com/v1.0/security/alerts_v2/alert-detail-1"
+    respx.get(detail_url).mock(
+        return_value=httpx.Response(
+            200,
+            json={"id": "alert-detail-1", "title": "Detail", "severity": "high"},
+        )
+    )
+
+    connector = AzureDefenderConnector(_TENANT, _CLIENT, _SECRET)
+    cfg = await connector.get_resource_config("alert-detail-1", at_ts="2026-01-15T12:00:00Z")
+    assert cfg["snapshot_freshness"] == "live"
+    assert cfg["snapshot_requested_at"] == "2026-01-15T12:00:00Z"
+    assert cfg["raw"]["id"] == "alert-detail-1"
+    assert cfg["raw"]["title"] == "Detail"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_azure_defender_get_resource_config_401_then_retry():
+    respx.post(f"https://login.microsoftonline.com/{_TENANT}/oauth2/v2.0/token").mock(
+        side_effect=[
+            httpx.Response(200, json={"access_token": "tok-1", "expires_in": 3600}),
+            httpx.Response(200, json={"access_token": "tok-2", "expires_in": 3600}),
+        ]
+    )
+    detail_url = "https://graph.microsoft.com/v1.0/security/alerts_v2/alert-retry"
+    respx.get(detail_url).mock(
+        side_effect=[
+            httpx.Response(401, text="expired"),
+            httpx.Response(200, json={"id": "alert-retry", "title": "After refresh"}),
+        ]
+    )
+
+    connector = AzureDefenderConnector(_TENANT, _CLIENT, _SECRET)
+    cfg = await connector.get_resource_config("alert-retry")
+    assert cfg["raw"]["title"] == "After refresh"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_azure_defender_get_resource_config_non_200_returns_empty():
+    respx.post(f"https://login.microsoftonline.com/{_TENANT}/oauth2/v2.0/token").mock(
+        return_value=httpx.Response(200, json={"access_token": "abc", "expires_in": 3600})
+    )
+    respx.get("https://graph.microsoft.com/v1.0/security/alerts_v2/missing").mock(
+        return_value=httpx.Response(404, text="not found")
+    )
+
+    connector = AzureDefenderConnector(_TENANT, _CLIENT, _SECRET)
+    assert await connector.get_resource_config("missing") == {}

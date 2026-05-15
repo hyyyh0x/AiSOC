@@ -15,6 +15,17 @@ const PORT = parseInt(process.env.PORT || '8086', 10);
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379/4';
 const KAFKA_BROKERS = (process.env.KAFKA_BOOTSTRAP_SERVERS || 'localhost:9092').split(',');
 const KAFKA_TOPIC_FUSED = process.env.KAFKA_TOPIC_FUSED || 'aisoc.alerts.fused';
+// T1.4 (v8.0): graph-update channel. The ingest-side graph writer publishes
+// one envelope per node/edge upsert on `security.graph_updates`; we fan out
+// to WebSocket clients subscribed to `/ws/graph`. Topic name matches the
+// default in services/ingest/internal/config/config.go (env
+// `AISOC_GRAPH_UPDATES_TOPIC`) so the two services agree without manual
+// plumbing. Set to an empty string to disable the consumer entirely (useful
+// in tests that don't spin up Kafka for graph traffic).
+const KAFKA_TOPIC_GRAPH_UPDATES =
+  process.env.AISOC_GRAPH_UPDATES_TOPIC ||
+  process.env.KAFKA_TOPIC_GRAPH_UPDATES ||
+  'security.graph_updates';
 const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || '';
 const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || '';
 const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:soc@example.com';
@@ -120,15 +131,22 @@ const server = http.createServer(app);
 // --- WebSocket server ---
 // Accept both `/ws` (legacy) and `/ws/:channel` (preferred). The channel lets
 // callers say up-front what they care about (alerts, cases, agents, insights,
-// all) so we can avoid spamming a panel that only renders alerts with
+// graph, all) so we can avoid spamming a panel that only renders alerts with
 // case/agent traffic.
 //
 // The `insights` channel (T3.1) is consumed by
 // apps/web/src/app/(app)/dashboards/soc-insights/page.tsx to know when to
 // re-fetch the aggregator endpoint. The payload itself stays small —
 // it's a poke, not a data delivery.
-type Channel = 'alerts' | 'cases' | 'agents' | 'insights' | 'all';
-const VALID_CHANNELS: Channel[] = ['alerts', 'cases', 'agents', 'insights', 'all'];
+//
+// The `graph` channel (T1.4, v8.0) is consumed by the Investigation Rail and
+// Attack Chain views to light up new entity nodes / edges in near-real-time.
+// Unlike `insights`, the payload IS the delivery: each message carries the
+// full GraphUpdate envelope from `security.graph_updates` (entity_id,
+// change_type, label, rel_type, from, to, properties, schema_version), so
+// the client can apply the mutation locally without re-querying Neo4j.
+type Channel = 'alerts' | 'cases' | 'agents' | 'insights' | 'graph' | 'all';
+const VALID_CHANNELS: Channel[] = ['alerts', 'cases', 'agents', 'insights', 'graph', 'all'];
 
 const wss = new WebSocketServer({ noServer: true });
 
@@ -212,6 +230,12 @@ const CHANNEL_FOR_TYPE: Record<string, Channel[]> = {
   // T3.1: SOC Insights dashboard tick. Both the dedicated `insights`
   // subscribers and any `all`-subscribed admin consoles get the poke.
   'insights_updated': ['insights', 'all'],
+  // T1.4 (v8.0): graph-mutation fan-out from the ingest-side writer.
+  // `graph.update` carries the full GraphUpdate envelope; `graph` and
+  // `all` subscribers both receive it. We deliberately do NOT include
+  // `insights` here — the SOC Insights dashboard is a stats poke, not a
+  // graph-render surface.
+  'graph.update': ['graph', 'all'],
 };
 
 function broadcastToTenant(tenantId: string, message: { type: string } & Record<string, unknown>) {
@@ -321,14 +345,16 @@ app.get('/sse', sseRateLimit, (req, res) => {
   });
 });
 
+// Single shared Kafka client so we don't spin up a second TCP fan-out for
+// each topic; kafkajs multiplexes consumers internally.
+const kafka = new Kafka({
+  clientId: 'aisoc-realtime',
+  brokers: KAFKA_BROKERS,
+  retry: { retries: 5 },
+});
+
 // --- Kafka consumer: bridge fused alerts to WebSocket clients ---
 async function startKafkaConsumer() {
-  const kafka = new Kafka({
-    clientId: 'aisoc-realtime',
-    brokers: KAFKA_BROKERS,
-    retry: { retries: 5 },
-  });
-
   const consumer = kafka.consumer({ groupId: 'aisoc-realtime-ws' });
 
   await consumer.connect();
@@ -385,6 +411,87 @@ async function startKafkaConsumer() {
         }
       } catch (err) {
         log.warn({ err }, 'Failed to parse Kafka message');
+      }
+    },
+  });
+}
+
+// --- Kafka consumer: bridge graph mutations to WebSocket clients (T1.4) ---
+// The ingest-side graph writer (services/ingest/internal/graph/writer.go)
+// publishes one envelope per node/edge upsert on `security.graph_updates`.
+// We fan that stream out to clients subscribed to `/ws/graph` (or `/ws/all`),
+// scoped by tenant. We deliberately run this on its own consumer group so a
+// graph-side stall can't backpressure the fused-alert fan-out — and vice
+// versa. A failure to start (Kafka unreachable, topic missing, etc.) is
+// logged and surfaced via the outer retry wrapper; it does NOT crash the
+// process, because the alert fan-out path is the higher-priority surface.
+async function startGraphUpdateConsumer() {
+  if (!KAFKA_TOPIC_GRAPH_UPDATES) {
+    log.info('Graph update consumer disabled (empty KAFKA_TOPIC_GRAPH_UPDATES)');
+    return;
+  }
+
+  const consumer = kafka.consumer({ groupId: 'aisoc-realtime-graph' });
+
+  await consumer.connect();
+  await consumer.subscribe({
+    topic: KAFKA_TOPIC_GRAPH_UPDATES,
+    // We never want to replay the full graph history on a realtime restart —
+    // a panel that connects today should see deltas from now, not from the
+    // start of the topic.
+    fromBeginning: false,
+  });
+
+  log.info(
+    { topic: KAFKA_TOPIC_GRAPH_UPDATES, groupId: 'aisoc-realtime-graph' },
+    'Graph update Kafka consumer connected',
+  );
+
+  await consumer.run({
+    eachMessage: async ({ message }) => {
+      if (!message.value) return;
+      try {
+        // The Go writer emits the camel-case-on-the-wire form documented in
+        // services/ingest/internal/graph/writer.go: `entity_id`,
+        // `change_type`, `ts`, `label`, `rel_type`, `from`, `to`,
+        // `properties`, `schema_version`, `tenant_id`. Anything else is
+        // treated as a malformed envelope and dropped.
+        const update = JSON.parse(message.value.toString()) as {
+          entity_id?: string;
+          change_type?: string;
+          ts?: string;
+          label?: string;
+          rel_type?: string;
+          from?: string;
+          to?: string;
+          properties?: Record<string, unknown>;
+          schema_version?: string;
+          tenant_id?: string;
+        };
+
+        if (!update.entity_id || !update.change_type) {
+          // Headerless or partial envelopes are almost always a producer
+          // bug — log once at warn so we notice in CI but don't tear the
+          // consumer down. (kafkajs auto-commits the offset either way.)
+          log.warn(
+            { entity_id: update.entity_id, change_type: update.change_type },
+            'Dropping malformed graph update (missing entity_id or change_type)',
+          );
+          return;
+        }
+
+        // Per-tenant fan-out. Default to "default" so single-tenant
+        // self-hosted deploys keep working without explicit tenant tagging
+        // (matches the policy on the fused-alerts consumer above).
+        const tenantId = update.tenant_id || 'default';
+
+        broadcastToTenant(tenantId, {
+          type: 'graph.update',
+          payload: update,
+          timestamp: new Date().toISOString(),
+        });
+      } catch (err) {
+        log.warn({ err }, 'Failed to parse graph update Kafka message');
       }
     },
   });
@@ -534,9 +641,29 @@ app.get('/healthz', reportHealth);
 // default or the container is launched with IPv6 disabled.
 server.listen(PORT, '::', async () => {
   log.info({ port: PORT, host: '::' }, 'AiSOC Real-time service started');
-  try {
-    await startKafkaConsumer();
-  } catch (err) {
-    log.warn({ err }, 'Kafka consumer failed to start (will retry)');
-  }
+
+  // Start the two Kafka consumers concurrently. Each is wrapped in its own
+  // try/catch so a failure on the graph topic (e.g. it doesn't exist yet on
+  // a brand-new cluster) does NOT block the higher-priority fused-alerts
+  // fan-out. We deliberately fire them in parallel rather than awaiting
+  // sequentially so the HTTP/WS listener is fully up before either Kafka
+  // round-trip completes.
+  void (async () => {
+    try {
+      await startKafkaConsumer();
+    } catch (err) {
+      log.warn({ err }, 'Kafka consumer failed to start (will retry)');
+    }
+  })();
+
+  void (async () => {
+    try {
+      await startGraphUpdateConsumer();
+    } catch (err) {
+      // T1.4 fan-out is best-effort: if the graph topic isn't available the
+      // alerts/cases/agents/insights channels still work, the graph panel
+      // just won't light up in real time.
+      log.warn({ err }, 'Graph update consumer failed to start (will retry)');
+    }
+  })();
 });

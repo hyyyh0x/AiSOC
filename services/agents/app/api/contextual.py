@@ -45,6 +45,9 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from app.llm import safe_ainvoke, safe_astream
+from app.prompt_serialization import summarize_structure_for_llm
+
 logger = structlog.get_logger()
 
 router = APIRouter(prefix="/api/v1/contextual", tags=["contextual"])
@@ -313,10 +316,12 @@ _SYSTEM_PROMPTS: dict[tuple[str, str], str] = {
 def _serialize_entity(entity: dict[str, Any] | None, entity_id: str) -> str:
     if not entity:
         return f"(no entity payload supplied; entity_id={entity_id})"
-    try:
-        return json.dumps(entity, indent=2, default=str)[:8000]
-    except (TypeError, ValueError):
-        return repr(entity)[:8000]
+    return summarize_structure_for_llm(
+        entity,
+        label="entity_snapshot",
+        max_lines=80,
+        max_depth=3,
+    )
 
 
 def _build_messages(req: ContextualActionRequest) -> tuple[str, str]:
@@ -337,7 +342,7 @@ def _build_messages(req: ContextualActionRequest) -> tuple[str, str]:
         f"Entity ID: {req.entity_id}",
         "",
         "Entity snapshot:",
-        "```json",
+        "```text",
         entity_blob,
         "```",
     ]
@@ -369,7 +374,7 @@ async def _call_llm(system: str, user: str, model: str) -> tuple[str, int]:
         return _fallback_response(system, user), 0
 
     llm = ChatOpenAI(model=model, temperature=0.2)
-    response = await llm.ainvoke([SystemMessage(content=system), HumanMessage(content=user)])
+    response = await safe_ainvoke(llm, [SystemMessage(content=system), HumanMessage(content=user)])
     text = response.content if isinstance(response.content, str) else str(response.content)
     tokens = 0
     if hasattr(response, "response_metadata"):
@@ -397,7 +402,7 @@ async def _stream_llm(system: str, user: str, model: str) -> AsyncIterator[str]:
         return
 
     llm = ChatOpenAI(model=model, temperature=0.2, streaming=True)
-    async for chunk in llm.astream([SystemMessage(content=system), HumanMessage(content=user)]):
+    async for chunk in safe_astream(llm, [SystemMessage(content=system), HumanMessage(content=user)]):
         if hasattr(chunk, "content") and chunk.content:
             yield chunk.content if isinstance(chunk.content, str) else str(chunk.content)
 

@@ -59,14 +59,14 @@ Wave-2 commits (most recent first, all SSH-signed, attributed Prince Sinha):
 
 ### Track 1 — Graph at ingest
 - [~] T1.1 Ingest-side graph writer (P0, L) — scaffold landed: schema v1.0 + Neo4j writer + extractors for `aws_security_hub` / `github_audit` / `okta_system_log` / `kubernetes_audit` + generic fallback for the other 10 source types + `security.graph_updates` Kafka topic + fan-out wiring (failures NEVER block fusion); 16 Go unit tests green; Python integration test stubbed (`services/agents/tests/test_graph_freshness.py`, `pytest -m integration`). 360-event corpus + remaining connector mappings deferred to T1.2 / T4 wave.
-- [~] T1.2 Config snapshots (P0, M) → T1.1 — partial / wip — `5a0d179f` (`:CONFIGURED_AS {ts}` edges + connector overrides for AWS / GitHub / Okta; Azure + GCP overrides pending)
+- [~] T1.2 Config snapshots (P0, M) → T1.1 — partial / wip — `5a0d179f` (`:CONFIGURED_AS {ts}` edges + connector overrides for AWS / GitHub / Okta); **Azure Defender + GCP SCC** now expose `get_resource_config` (Microsoft Graph `alerts_v2` + SCC v1 findings GET) with 401 re-auth retry, `snapshot_freshness: live`, and **respx** coverage in `test_azure_connectors.py` / `test_gcp_connectors.py`. Ingest-time `:CONFIGURED_AS` materialisation for Azure/GCP remains optional follow-up.
 - [x] T1.3 Publish graph schema (P0, S) → T1.1
-- [ ] T1.4 Real-time graph-update WebSocket (P1, S) → T1.1
+- [x] T1.4 Real-time graph-update WebSocket (P1, S) → T1.1 — `services/realtime/src/index.ts` adds the `graph` channel (`/ws/graph` and `/ws/all`), a dedicated `aisoc-realtime-graph` consumer group on `security.graph_updates`, tenant-scoped fan-out of the full `GraphUpdate` envelope, and best-effort start (graph-topic failure never blocks fused-alerts fan-out). Topic name honours `AISOC_GRAPH_UPDATES_TOPIC` / `KAFKA_TOPIC_GRAPH_UPDATES`, defaulting to the same `security.graph_updates` that the Go ingest writer publishes to (`services/ingest/internal/graph/writer.go`). `tsc --noEmit` green.
 
 ### Track 2 — Agent reasoning: latency + cost
-- [~] T2.1 Pre-fetched context bundle (P0, M) → T1.1 — partial / wip — `2c7a66c1` (ContextBundle dataclass + parallel pre-fetch from graph/RAG/threat-intel; integration into LangGraph pending T2.2)
+- [~] T2.1 Pre-fetched context bundle (P0, M) → T1.1 — partial / wip — `2c7a66c1` (ContextBundle dataclass + parallel pre-fetch from graph/RAG/threat-intel). **Investigator** path: `orchestrator.py` prefetches `context_bundle`, `state.py` carries it, `bundle_prompt.py` + `format_bundle_prompt_append` wire it into recon / forensic / responder / report-writer prompts. Cloud / identity / insider-threat / phishing agents accept optional `bundle` kwarg. Full **LangGraph parallel fan-out + Join** remains **T2.2**.
 - [ ] T2.2 LangGraph parallel topology (P0, M) → T2.1
-- [~] T2.3 LLM-input contract (P0, M) → T2.1 — partial / wip — `87c151a7` (fail-closed Pydantic validator on tool input/output; wiring into all agents pending)
+- [~] T2.3 LLM-input contract (P0, M) → T2.1 — partial / wip — `87c151a7` (`app/llm/contract.py` + `safe_ainvoke` / `safe_astream`; `test_llm_contract.py` asserts raw OCSF JSON is rejected and `summarize_structure_for_llm` output passes; dict-shaped messages avoid `langchain_core` at test import). **Wired** on contextual chat (`api/contextual.py`), auto-triage, and investigator subgraph agents that call the shared LLM path; remaining non-investigation agents can adopt `safe_ainvoke` incrementally.
 - [x] T2.4 Token + USD eval telemetry (P0, S)
 - [x] T2.5 Four-agent brand consolidation (P0, S)
 

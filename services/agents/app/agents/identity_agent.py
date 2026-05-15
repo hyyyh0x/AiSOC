@@ -18,6 +18,8 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
 from app.context import ContextBundle
+from app.llm import safe_ainvoke
+from app.prompt_serialization import format_extra_fields_for_llm, summarize_structure_for_llm
 from app.models.state import AgentStatus, InvestigationState
 
 logger = structlog.get_logger()
@@ -82,14 +84,22 @@ def _build_identity_context(state: InvestigationState) -> str:
             parts.append(f"{label}: {raw[key]}")
 
     if raw.get("login_attempts"):
-        parts.append(f"Login attempts: {json.dumps(raw['login_attempts'], default=str)}")
+        parts.append(
+            "Login attempts:\n"
+            + summarize_structure_for_llm(
+                raw["login_attempts"], label="login_attempts", max_lines=24, max_depth=2
+            )
+        )
     if raw.get("failed_count"):
         parts.append(f"Failed attempt count: {raw['failed_count']}")
 
     geo_fields = ["login_locations", "geo_locations"]
     for gf in geo_fields:
         if raw.get(gf):
-            parts.append(f"Geo locations: {json.dumps(raw[gf], default=str)}")
+            parts.append(
+                f"Geo locations ({gf}):\n"
+                + summarize_structure_for_llm(raw[gf], label=gf, max_lines=20, max_depth=2)
+            )
 
     priv_fields = ["role_change", "group_added", "permissions_changed", "privilege_level"]
     priv_parts = []
@@ -102,7 +112,12 @@ def _build_identity_context(state: InvestigationState) -> str:
     if raw.get("timestamp"):
         parts.append(f"Event time: {raw['timestamp']}")
     if raw.get("previous_login"):
-        parts.append(f"Previous login: {json.dumps(raw['previous_login'], default=str)}")
+        parts.append(
+            "Previous login:\n"
+            + summarize_structure_for_llm(
+                raw["previous_login"], label="previous_login", max_lines=16, max_depth=2
+            )
+        )
 
     extra_keys = {
         k
@@ -122,7 +137,7 @@ def _build_identity_context(state: InvestigationState) -> str:
     }
     if extra_keys:
         extras = {k: raw[k] for k in sorted(extra_keys)[:8]}
-        parts.append(f"Additional fields: {json.dumps(extras, default=str)}")
+        parts.append("Additional fields:\n" + format_extra_fields_for_llm(extras, max_keys=8))
 
     return "\n".join(parts)
 
@@ -193,11 +208,12 @@ async def run_identity(
 
     t0 = time.monotonic()
     try:
-        response = await llm.ainvoke(
+        response = await safe_ainvoke(
+            llm,
             [
                 SystemMessage(content=_SYSTEM_PROMPT),
                 HumanMessage(content=prompt_context),
-            ]
+            ],
         )
         result = _parse_response(response.content)
     except Exception as exc:

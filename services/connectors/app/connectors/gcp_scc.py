@@ -228,6 +228,46 @@ class GCPSCCConnector(BaseConnector):
 
         return [self.normalize(item) for item in entries]
 
+    async def get_resource_config(
+        self,
+        resource_id: str,
+        at_ts: str | None = None,
+    ) -> dict[str, Any]:
+        """Fetch one SCC finding by full resource name (``external_id`` from normalize)."""
+        if not (resource_id or "").strip():
+            return {}
+        rid = resource_id.strip()
+        url = f"{_SCC_BASE}/{rid}"
+
+        await self._authenticate()
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(url, headers=self._headers())
+            if resp.status_code == 401:
+                logger.warning(
+                    "gcp_scc.get_resource_config_unauthorized",
+                    finding=str(rid).replace("\r", "").replace("\n", " ")[:512],
+                )
+                self._access_token = None
+                await self._authenticate()
+                resp = await client.get(url, headers=self._headers())
+            if resp.status_code != 200:
+                logger.warning(
+                    "gcp_scc.get_resource_config_failed",
+                    status=resp.status_code,
+                    finding=str(rid).replace("\r", "").replace("\n", " ")[:512],
+                    body=str(resp.text).replace("\r", "").replace("\n", " ")[:300],
+                )
+                return {}
+        try:
+            body = resp.json()
+        except Exception:  # noqa: BLE001
+            return {}
+        out: dict[str, Any] = {"raw": body, "snapshot_freshness": "live"}
+        if at_ts:
+            out["snapshot_requested_at"] = at_ts
+        return out
+
     # ----------------------- normalize --------------------------
 
     def normalize(self, raw: dict[str, Any]) -> dict[str, Any]:

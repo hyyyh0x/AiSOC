@@ -20,9 +20,11 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
 from app.core.cost_telemetry import record_llm_call
+from app.llm import safe_ainvoke
+from app.prompt_serialization import summarize_structure_for_llm
 
+from .bundle_prompt import format_bundle_prompt_append
 from .prompt_sanitizer import (
-    sanitize_for_prompt,
     sanitize_iterable_of_strings,
     sanitize_text,
 )
@@ -64,10 +66,11 @@ async def _llm_forensic(state: InvestigatorState) -> dict[str, Any]:
     safe_summary = sanitize_text(state.alert_summary, max_len=2_000)
     safe_recon = sanitize_text(state.recon.summary, max_len=2_000)
     safe_mitre = sanitize_iterable_of_strings(state.recon.mitre_techniques, max_item_len=64, max_items=25)
-    enrichment_blob = sanitize_for_prompt(
+    enrichment_blob = summarize_structure_for_llm(
         dict(list(state.enrichment_cache.items())[:10]),
         label="enrichment_cache",
-        max_blob_len=3_000,
+        max_lines=40,
+        max_depth=2,
     )
 
     prompt = (
@@ -76,6 +79,9 @@ async def _llm_forensic(state: InvestigatorState) -> dict[str, Any]:
         f"MITRE techniques: {safe_mitre}\n\n"
         f"Enrichment data (sample):\n{enrichment_blob}"
     )
+    bundle_append = format_bundle_prompt_append(state.context_bundle)
+    if bundle_append:
+        prompt = f"{prompt}\n\n{bundle_append}"
 
     messages = [
         SystemMessage(content=_SYSTEM_PROMPT),
@@ -94,7 +100,7 @@ async def _llm_forensic(state: InvestigatorState) -> dict[str, Any]:
 
     t0 = time.monotonic()
     try:
-        response = await llm.ainvoke(messages)
+        response = await safe_ainvoke(llm, messages)
         content = response.content
         latency_ms = int((time.monotonic() - t0) * 1000)
         tokens = 0

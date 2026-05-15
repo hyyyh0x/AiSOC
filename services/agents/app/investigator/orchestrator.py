@@ -23,6 +23,7 @@ from opentelemetry import trace
 from app.core.cost_telemetry import CostTracker
 
 from . import ledger
+from .bundle_prompt import prefetch_context_bundle_dict
 from .forensic_agent import run_forensic
 from .recon_agent import run_recon
 from .report_writer_agent import run_report_writer
@@ -150,11 +151,18 @@ class InvestigatorOrchestrator:
         with _tracer.start_as_current_span("investigator.run") as span:
             span.set_attribute("case.id", case_id)
             span.set_attribute("tenant.id", tenant_id)
+            bundle = await prefetch_context_bundle_dict(
+                case_id=case_id,
+                tenant_id=tenant_id,
+                alert_summary=alert_summary,
+                raw_alert=raw_alert or {},
+            )
             initial = InvestigatorState(
                 case_id=case_id,
                 alert_summary=alert_summary,
                 raw_alert=raw_alert or {},
                 tenant_id=tenant_id,
+                context_bundle=bundle,
             )
 
             run_uuid = run_id or uuid.uuid4()
@@ -249,11 +257,18 @@ class InvestigatorOrchestrator:
         and only forward new entries. This same monotonic seq becomes the
         primary sort key in the persisted ledger.
         """
+        bundle = await prefetch_context_bundle_dict(
+            case_id=case_id,
+            tenant_id=tenant_id,
+            alert_summary=alert_summary,
+            raw_alert=raw_alert or {},
+        )
         initial = InvestigatorState(
             case_id=case_id,
             alert_summary=alert_summary,
             raw_alert=raw_alert or {},
             tenant_id=tenant_id,
+            context_bundle=bundle,
         )
 
         run_uuid = run_id or uuid.uuid4()

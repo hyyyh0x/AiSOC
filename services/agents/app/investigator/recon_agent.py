@@ -19,8 +19,11 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
 from app.core.cost_telemetry import record_llm_call
+from app.llm import safe_ainvoke
+from app.prompt_serialization import summarize_structure_for_llm
 
-from .prompt_sanitizer import sanitize_for_prompt, sanitize_text
+from .bundle_prompt import format_bundle_prompt_append
+from .prompt_sanitizer import sanitize_text
 from .state import InvestigatorState, ReconFindings, StepKind
 from .tools import enrich_ioc, extract_iocs, map_to_mitre, sha256_of
 
@@ -63,12 +66,19 @@ async def _llm_recon(state: InvestigatorState) -> dict[str, Any]:
     # authoritative even if an attacker plants a "ignore previous instructions"
     # payload inside a banner or log message.
     safe_summary = sanitize_text(state.alert_summary, max_len=2_000)
-    raw_alert_blob = sanitize_for_prompt(
-        state.raw_alert,
-        label="raw_alert",
-        max_blob_len=3_000,
-    )
-    prompt = f"Alert summary:\n{safe_summary}\n\nRaw alert data:\n{raw_alert_blob}"
+    if isinstance(state.raw_alert, str):
+        raw_alert_blob = sanitize_text(state.raw_alert, max_len=2_500)
+    else:
+        raw_alert_blob = summarize_structure_for_llm(
+            state.raw_alert,
+            label="alert_structure",
+            max_lines=45,
+            max_depth=3,
+        )
+    prompt = f"Alert summary:\n{safe_summary}\n\nStructured alert summary:\n{raw_alert_blob}"
+    bundle_append = format_bundle_prompt_append(state.context_bundle)
+    if bundle_append:
+        prompt = f"{prompt}\n\n{bundle_append}"
 
     messages = [
         SystemMessage(content=_SYSTEM_PROMPT),
@@ -87,7 +97,7 @@ async def _llm_recon(state: InvestigatorState) -> dict[str, Any]:
 
     t0 = time.monotonic()
     try:
-        response = await llm.ainvoke(messages)
+        response = await safe_ainvoke(llm, messages)
         content = response.content
         latency_ms = int((time.monotonic() - t0) * 1000)
         tokens = 0

@@ -19,9 +19,11 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
 from app.core.cost_telemetry import record_llm_call
+from app.llm import safe_ainvoke
+from app.prompt_serialization import summarize_structure_for_llm
 
+from .bundle_prompt import format_bundle_prompt_append
 from .prompt_sanitizer import (
-    sanitize_for_prompt,
     sanitize_iterable_of_strings,
     sanitize_text,
 )
@@ -65,10 +67,11 @@ async def _llm_responder(state: InvestigatorState) -> dict[str, Any]:
     safe_blast = sanitize_text(state.forensic.blast_radius, max_len=1_000)
     safe_mitre = sanitize_iterable_of_strings(state.recon.mitre_techniques, max_item_len=64, max_items=25)
     safe_actors = sanitize_iterable_of_strings(state.recon.threat_actors, max_item_len=128, max_items=25)
-    timeline_blob = sanitize_for_prompt(
-        state.forensic.timeline[-5:],
+    timeline_blob = summarize_structure_for_llm(
+        list(state.forensic.timeline[-5:]),
         label="timeline_tail",
-        max_blob_len=2_500,
+        max_lines=35,
+        max_depth=2,
     )
 
     prompt = (
@@ -80,6 +83,9 @@ async def _llm_responder(state: InvestigatorState) -> dict[str, Any]:
         f"Threat actors: {safe_actors}\n\n"
         f"Timeline (last 5):\n{timeline_blob}"
     )
+    bundle_append = format_bundle_prompt_append(state.context_bundle)
+    if bundle_append:
+        prompt = f"{prompt}\n\n{bundle_append}"
 
     messages = [
         SystemMessage(content=_SYSTEM_PROMPT),
@@ -98,7 +104,7 @@ async def _llm_responder(state: InvestigatorState) -> dict[str, Any]:
 
     t0 = time.monotonic()
     try:
-        response = await llm.ainvoke(messages)
+        response = await safe_ainvoke(llm, messages)
         content = response.content
         latency_ms = int((time.monotonic() - t0) * 1000)
         tokens = 0

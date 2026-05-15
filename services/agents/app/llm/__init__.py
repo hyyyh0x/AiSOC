@@ -11,22 +11,28 @@ leaking raw payloads to a third-party model.
 
 from .contract import (
     AGENTS_LLM_CONTRACT_ENFORCED_ENV,
+    CONTRACT_DICT_KEY_BLOCKLIST,
     LLMContractViolation,
     LLMInputContract,
     classify_message,
     is_contract_enforced,
+    make_safe_chat_model,
     safe_ainvoke,
+    safe_astream,
     set_contract_enforcement,
     validate_messages,
 )
 
 __all__ = [
     "AGENTS_LLM_CONTRACT_ENFORCED_ENV",
+    "CONTRACT_DICT_KEY_BLOCKLIST",
     "LLMContractViolation",
     "LLMInputContract",
     "classify_message",
     "is_contract_enforced",
+    "make_safe_chat_model",
     "safe_ainvoke",
+    "safe_astream",
     "set_contract_enforcement",
     "validate_messages",
 ]

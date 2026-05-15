@@ -118,6 +118,9 @@ class InvestigatorState(BaseModel):
     # Shared enrichment cache (IOC → enrichment result)
     enrichment_cache: dict[str, Any] = Field(default_factory=dict)
 
+    # Pre-fetched ContextBundle (T2.1 / T2.3) — JSON-serialisable dict appended to LLM prompts.
+    context_bundle: dict[str, Any] = Field(default_factory=dict)
+
     # LLM message history (accumulated for context)
     messages: list[dict[str, Any]] = Field(default_factory=list)
 

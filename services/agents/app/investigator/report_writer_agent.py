@@ -18,9 +18,11 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
 from app.core.cost_telemetry import record_llm_call
+from app.llm import safe_ainvoke
+from app.prompt_serialization import summarize_structure_for_llm
 
+from .bundle_prompt import format_bundle_prompt_append
 from .prompt_sanitizer import (
-    sanitize_for_prompt,
     sanitize_iterable_of_strings,
     sanitize_text,
 )
@@ -75,11 +77,17 @@ def _build_context(state: InvestigatorState) -> str:
     safe_eradication = sanitize_iterable_of_strings(state.responder.eradication_steps[:5], max_item_len=400, max_items=5)
     safe_recovery = sanitize_iterable_of_strings(state.responder.recovery_steps[:5], max_item_len=400, max_items=5)
 
-    iocs_blob = sanitize_for_prompt(state.recon.iocs, label="iocs", max_blob_len=2_500)
-    enrichment_blob = sanitize_for_prompt(
+    iocs_blob = summarize_structure_for_llm(
+        state.recon.iocs,
+        label="iocs",
+        max_lines=30,
+        max_depth=2,
+    )
+    enrichment_blob = summarize_structure_for_llm(
         dict(list(state.enrichment_cache.items())[:5]),
         label="enrichment_sample",
-        max_blob_len=1_500,
+        max_lines=25,
+        max_depth=2,
     )
 
     sections = [
@@ -161,6 +169,9 @@ async def run_report_writer(state_dict: dict[str, Any]) -> dict[str, Any]:
     llm = ChatOpenAI(model=model, temperature=0)
 
     context = _build_context(state)
+    bundle_append = format_bundle_prompt_append(state.context_bundle)
+    if bundle_append:
+        context = f"{context}\n\n{bundle_append}"
     system_prompt = _SYSTEM_PROMPT.format(case_id=state.case_id)
     messages = [
         SystemMessage(content=system_prompt),
@@ -179,7 +190,7 @@ async def run_report_writer(state_dict: dict[str, Any]) -> dict[str, Any]:
 
     t_llm = time.monotonic()
     try:
-        response = await llm.ainvoke(messages)
+        response = await safe_ainvoke(llm, messages)
         state.report_md = response.content
         latency_ms = int((time.monotonic() - t_llm) * 1000)
         tokens = 0

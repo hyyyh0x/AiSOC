@@ -67,6 +67,10 @@ _LOG_KEYS = frozenset(
     }
 )
 
+# Union of dict keys that must never appear in LLM-bound JSON strings
+# (prompt serialization uses this to redact / shallow-summarize nested data).
+CONTRACT_DICT_KEY_BLOCKLIST: frozenset[str] = frozenset(_OCSF_KEYS | _LOG_KEYS)
+
 # Compact regex for the most common raw-log signatures we want to catch
 # even when the payload is rendered as a string instead of a dict.
 _LOG_SHAPE_PATTERNS = (

@@ -21,7 +21,9 @@ import structlog
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
+from app.llm import safe_ainvoke
 from app.models.state import AgentStatus, InvestigationState
+from app.prompt_serialization import format_extra_fields_for_llm
 
 logger = structlog.get_logger()
 
@@ -122,7 +124,7 @@ def _build_alert_context(state: InvestigationState) -> str:
     extra_keys = {k for k in raw if k not in {"severity", "risk_score", "mitre_techniques", *ioc_fields}}
     if extra_keys:
         extras = {k: raw[k] for k in sorted(extra_keys)[:10]}
-        parts.append(f"Additional fields: {json.dumps(extras, default=str)}")
+        parts.append("Additional fields (summary, not raw JSON):\n" + format_extra_fields_for_llm(extras))
 
     return "\n".join(parts)
 
@@ -178,11 +180,12 @@ async def run_auto_triage(state: InvestigationState) -> InvestigationState:
 
     t0 = time.monotonic()
     try:
-        response = await llm.ainvoke(
+        response = await safe_ainvoke(
+            llm,
             [
                 SystemMessage(content=_SYSTEM_PROMPT),
                 HumanMessage(content=alert_context),
-            ]
+            ],
         )
         raw_text = response.content
         result = _parse_llm_response(raw_text)

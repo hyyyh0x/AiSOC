@@ -379,3 +379,76 @@ async def test_scc_fetch_alerts_returns_normalized_findings(fake_sa_json):
     assert events[0]["severity"] == "high"
     assert events[0]["title"] == "PUBLIC_BUCKET_ACL"
     assert events[0]["resource_type"] == "google.cloud.storage.Bucket"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_scc_get_resource_config_empty_id(fake_sa_json):
+    connector = GCPSCCConnector(_ORG, fake_sa_json)
+    assert await connector.get_resource_config("") == {}
+    assert await connector.get_resource_config("  ") == {}
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_scc_get_resource_config_success(fake_sa_json):
+    respx.post("https://oauth2.googleapis.com/token").mock(
+        return_value=httpx.Response(200, json={"access_token": "tok-abc", "expires_in": 3600})
+    )
+    finding_name = f"organizations/{_ORG}/sources/888/findings/detail-1"
+    respx.get(f"https://securitycenter.googleapis.com/v1/{finding_name}").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "name": finding_name,
+                "category": "IAM_ANOMALY",
+                "severity": "MEDIUM",
+                "eventTime": "2026-01-01T00:00:00Z",
+            },
+        )
+    )
+
+    connector = GCPSCCConnector(_ORG, fake_sa_json)
+    cfg = await connector.get_resource_config(finding_name, at_ts="2026-01-10T00:00:00Z")
+    assert cfg["snapshot_freshness"] == "live"
+    assert cfg["snapshot_requested_at"] == "2026-01-10T00:00:00Z"
+    assert cfg["raw"]["category"] == "IAM_ANOMALY"
+    assert cfg["raw"]["name"] == finding_name
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_scc_get_resource_config_401_then_retry(fake_sa_json):
+    respx.post("https://oauth2.googleapis.com/token").mock(
+        side_effect=[
+            httpx.Response(200, json={"access_token": "tok-1", "expires_in": 3600}),
+            httpx.Response(200, json={"access_token": "tok-2", "expires_in": 3600}),
+        ]
+    )
+    finding_name = f"organizations/{_ORG}/sources/888/findings/retry-f"
+    detail_url = f"https://securitycenter.googleapis.com/v1/{finding_name}"
+    respx.get(detail_url).mock(
+        side_effect=[
+            httpx.Response(401, text="invalid authentication credentials"),
+            httpx.Response(200, json={"name": finding_name, "category": "OPEN_FIREWALL", "severity": "LOW"}),
+        ]
+    )
+
+    connector = GCPSCCConnector(_ORG, fake_sa_json)
+    cfg = await connector.get_resource_config(finding_name)
+    assert cfg["raw"]["category"] == "OPEN_FIREWALL"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_scc_get_resource_config_non_200_returns_empty(fake_sa_json):
+    respx.post("https://oauth2.googleapis.com/token").mock(
+        return_value=httpx.Response(200, json={"access_token": "tok-abc", "expires_in": 3600})
+    )
+    finding_name = f"organizations/{_ORG}/sources/888/findings/gone"
+    respx.get(f"https://securitycenter.googleapis.com/v1/{finding_name}").mock(
+        return_value=httpx.Response(404, text="not found")
+    )
+
+    connector = GCPSCCConnector(_ORG, fake_sa_json)
+    assert await connector.get_resource_config(finding_name) == {}

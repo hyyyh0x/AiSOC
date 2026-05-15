@@ -19,7 +19,9 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
 from app.context import ContextBundle
+from app.llm import safe_ainvoke
 from app.models.state import AgentStatus, InvestigationState
+from app.prompt_serialization import format_extra_fields_for_llm, summarize_structure_for_llm
 
 logger = structlog.get_logger()
 
@@ -87,17 +89,35 @@ def _build_cloud_context(state: InvestigationState) -> str:
     if raw.get("bucket_acl") or raw.get("bucket_policy"):
         parts.append(f"Bucket ACL: {raw.get('bucket_acl', 'N/A')}")
         if raw.get("bucket_policy"):
-            parts.append(f"Bucket Policy: {json.dumps(raw['bucket_policy'], default=str)[:500]}")
+            parts.append(
+                "Bucket Policy:\n"
+                + summarize_structure_for_llm(
+                    raw["bucket_policy"], label="bucket_policy", max_lines=28, max_depth=3
+                )
+            )
 
     if raw.get("security_group_rules"):
-        parts.append(f"SG Rules: {json.dumps(raw['security_group_rules'], default=str)[:500]}")
+        parts.append(
+            "SG Rules:\n"
+            + summarize_structure_for_llm(
+                raw["security_group_rules"], label="security_group_rules", max_lines=28, max_depth=3
+            )
+        )
 
     if raw.get("iam_policy") or raw.get("permissions"):
         val = raw.get("iam_policy") or raw.get("permissions")
-        parts.append(f"IAM/Permissions: {json.dumps(val, default=str)[:500]}")
+        parts.append(
+            "IAM/Permissions:\n"
+            + summarize_structure_for_llm(val, label="iam_permissions", max_lines=28, max_depth=3)
+        )
 
     if raw.get("api_calls"):
-        parts.append(f"API calls: {json.dumps(raw['api_calls'], default=str)[:500]}")
+        parts.append(
+            "API calls:\n"
+            + summarize_structure_for_llm(
+                raw["api_calls"], label="api_calls", max_lines=28, max_depth=2
+            )
+        )
 
     if raw.get("is_public") is not None:
         parts.append(f"Public access: {raw['is_public']}")
@@ -125,7 +145,7 @@ def _build_cloud_context(state: InvestigationState) -> str:
     }
     if extra_keys:
         extras = {k: raw[k] for k in sorted(extra_keys)[:8]}
-        parts.append(f"Additional fields: {json.dumps(extras, default=str)}")
+        parts.append("Additional fields:\n" + format_extra_fields_for_llm(extras, max_keys=8))
 
     return "\n".join(parts)
 
@@ -197,11 +217,12 @@ async def run_cloud(
 
     t0 = time.monotonic()
     try:
-        response = await llm.ainvoke(
+        response = await safe_ainvoke(
+            llm,
             [
                 SystemMessage(content=_SYSTEM_PROMPT),
                 HumanMessage(content=prompt_context),
-            ]
+            ],
         )
         result = _parse_response(response.content)
     except Exception as exc:

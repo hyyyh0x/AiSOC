@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### LLM input contract — CI tests (T2.3, v8.0)
+
+`services/agents/tests/test_llm_contract.py` exercises `classify_message` /
+`LLMInputContract.validate` / `validate_messages`: raw OCSF-shaped JSON in a
+user message fails closed when `AISOC_AGENTS_LLM_CONTRACT_ENFORCED=1`
+(default), and prose plus `summarize_structure_for_llm` output passes. Tests
+use `{"role", "content"}` dict messages so they run without importing
+`langchain_core` (the contract already coerces LangChain `BaseMessage` and
+dicts the same way).
+
+### Real-time graph-update WebSocket (T1.4, v8.0)
+
+Closes the v8.0 loop between the ingest-side graph writer (T1.1) and the
+operator console. `services/realtime` now exposes a `graph` WebSocket
+channel reachable at `/ws/graph` (or piggy-backed on `/ws/all`) and runs a
+dedicated `aisoc-realtime-graph` Kafka consumer group against the
+`security.graph_updates` topic that the Go ingest writer publishes to
+(`services/ingest/internal/graph/writer.go`). Each `GraphUpdate` envelope
+(`entity_id`, `change_type`, `ts`, `label`, `rel_type`, `from`, `to`,
+`properties`, `schema_version`) is fanned out to clients scoped by
+`tenant_id`, with `default` as the single-tenant fallback so self-hosted
+deploys without explicit tenant tagging still light up live. The new
+consumer is wired alongside the existing fused-alerts consumer in
+non-blocking mode: a missing or unreachable graph topic logs at `warn` and
+never blocks the higher-priority alerts/cases/agents/insights fan-out. The
+topic name honours both `AISOC_GRAPH_UPDATES_TOPIC` and
+`KAFKA_TOPIC_GRAPH_UPDATES` envs (defaults to `security.graph_updates` so
+it matches the Go writer's default in
+`services/ingest/internal/config/config.go` without manual plumbing), and
+setting it to the empty string disables the consumer entirely for tests
+that don't spin up Kafka graph traffic. The Investigation Rail and Attack
+Chain views (T3.3 UI, in flight) can subscribe today and pick up node /
+edge mutations within ~1s of the upstream event reaching ingest.
+
 ### Public weekly benchmark scoreboard at /docs/benchmark-scoreboard
 
 Public, append-only weekly scoreboard now lives at
