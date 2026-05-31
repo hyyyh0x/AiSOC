@@ -9,8 +9,8 @@ An open-source, self-hostable AI SOC. The agent's prompts, tool calls, and ratio
 [![License: MIT](https://img.shields.io/badge/License-MIT-22c55e.svg?style=flat-square)](https://opensource.org/licenses/MIT)
 [![Public eval harness: CI-gated](https://img.shields.io/badge/eval%20harness-CI--gated-2563eb?style=flat-square)](apps/docs/docs/benchmark.md)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-8b5cf6?style=flat-square)](CONTRIBUTING.md)
-[![Version](https://img.shields.io/badge/version-7.3.1-f59e0b?style=flat-square)](CHANGELOG.md)
-[![Live demo on Fly.io (v8.0 launch)](https://img.shields.io/badge/Live%20demo-Fly.io-7b2bbe?style=flat-square&logo=fly-dot-io&logoColor=white)](https://tryaisoc.com)
+[![Version](https://img.shields.io/badge/version-7.4.0-f59e0b?style=flat-square)](CHANGELOG.md)
+[![Live demo on Fly.io (v7.4 live)](https://img.shields.io/badge/Live%20demo-Fly.io-7b2bbe?style=flat-square&logo=fly-dot-io&logoColor=white)](https://tryaisoc.com)
 [![Render demo (one-click)](https://img.shields.io/badge/Render%20demo-one%20click-46e3b7?style=flat-square&logo=render&logoColor=white)](https://render.com/deploy?repo=https://github.com/beenuar/AiSOC)
 
 [Live demo](https://tryaisoc.com) · [How AiSOC compares](#how-aisoc-compares) · [Public eval harness](apps/docs/docs/benchmark.md) · [Deploy in 60 seconds](#deploy-in-60-seconds) · [Deployment options](#deployment-options) · [Architecture](#architecture) · [Docs](apps/docs/)
@@ -39,9 +39,16 @@ The orchestrator is a ~600-line LangGraph in [`services/agents/`](services/agent
 
 ## What's new
 
-`VERSION` is `7.3.1`; everything below is captured under `[Unreleased]` in [`CHANGELOG.md`](CHANGELOG.md) and will tag with the v8.0 cut.
+`VERSION` is `7.4.0`. The **v7.4.0** release (2026-05-29) is a security-hardening and platform release that tags the work below — the May 27–29 hardening wave, multi-agent routing, and the multi-cloud infrastructure skeletons that had accumulated on `main` since `7.3.1`. The full inventory lives under `[7.4.0]` in [`CHANGELOG.md`](CHANGELOG.md).
 
-**Latest — security & stability (May 27–28, 2026)** — hardening, dependency, and boot-reliability work merged into `main`.
+**v7.4.0 highlights (May 29, 2026)**
+- **Security hardening** — prompt-injection sanitizer wired into the classification agents; cross-tenant isolation enforced on detection-loop suggestions and the compliance / phishing / knowledge-base endpoints; a nightly cross-tenant RBAC regression gate; `cryptography` CVEs cleared and CodeQL quality notes resolved.
+- **Multi-agent routing** — `DetectAgent.process` wired to the `FusionEngine` over cross-service HTTP; `/investigate` routed through the `RouterOrchestrator` behind the `ROUTER_INVESTIGATE` flag; a Redis-backed scheduler singleton guard for in-process workers.
+- **Multi-cloud infrastructure** — serverless-container Terraform skeletons for GCP (Cloud Run + Cloud SQL + Memorystore) and Azure (Container Apps + PostgreSQL Flexible Server + Cache for Redis), mirroring the AWS/EKS reference file-for-file.
+- **Live dashboard & landing** — real `/metrics` data restored on `tryaisoc.com/dashboard`, API/agents machines kept warm so the dashboard no longer 500s, seed timestamps re-anchored so it never goes empty, and the landing CTAs pointed at the live dashboard.
+- **Dependency & CI maintenance** — a large Dependabot sweep across the Python, JS, and Go services plus CI stabilization (Ruff cleanup, OpenAPI export permissions, lockfile dedupe).
+
+**Hardening detail folded into v7.4.0 (May 27–28, 2026)**
 - **Security Audit green** — `cryptography` floor raised to `44.0.1` to clear CVE-2024-12797 and later 42.x advisories across `services/connectors` and `services/osquery-tls`; advisories without an upstream fix are time-boxed (90-day expiry) in [`scripts/security_audit_ignores.txt`](scripts/security_audit_ignores.txt) ([#229](https://github.com/beenuar/AiSOC/pull/229)).
 - **Tenant-isolation fix** — detection-loop suggestion lookups are now scoped to the caller's tenant, closing a cross-tenant read path ([#221](https://github.com/beenuar/AiSOC/pull/221)).
 - **Full stack boots clean** — the reserved `window` column is now quoted and `pydantic[email]` ships in the image, so `docker compose` comes up end-to-end without manual patching ([#227](https://github.com/beenuar/AiSOC/pull/227)).
@@ -60,7 +67,7 @@ The orchestrator is a ~600-line LangGraph in [`services/agents/`](services/agent
 - **Rule Tuning workbench (PR-6 / W8)** — `/detection/tuning` ranks noisy rules by precision impact and ships one-click suppression + allow-list edits with full audit trail. Docs: [`apps/docs/docs/console/rule-tuning.md`](apps/docs/docs/console/rule-tuning.md).
 - **Zero-prerequisite installer** — `install.sh` / `install.ps1` now bootstrap from a clean machine (Docker, Compose, Node, pnpm, Python) with idempotency and a graduated `uninstall.sh`. Documented in [`apps/docs/docs/installation.md`](apps/docs/docs/installation.md), surfaced as **Path 0** in the [quickstart](apps/docs/docs/quickstart.md).
 
-**v8.0 wave-1 (architectural foundation, PR [#125](https://github.com/beenuar/AiSOC/pull/125))** — the foundation for the v8.0 line.
+**Architectural foundation (PR [#125](https://github.com/beenuar/AiSOC/pull/125))** — the graph-at-ingest and four-agent groundwork now on `main`.
 - **Graph at ingest** — Neo4j entity graph (17 node labels, 14 edge types) written inline with Kafka consumption. Batched UNWIND upserts + fire-and-forget retry queue keep ingest latency budget intact. Schema doc: [`apps/docs/docs/architecture/graph-schema.md`](apps/docs/docs/architecture/graph-schema.md).
 - **Four-agent rebrand** — `DetectAgent`, `TriageAgent`, `HuntAgent`, `RespondAgent` are now the public façade; back-compat aliases preserve existing imports. Funnel KPI doc: [`apps/docs/docs/console/funnel-kpis.md`](apps/docs/docs/console/funnel-kpis.md).
 - **`/hunt` natural-language surface** — type a hypothesis in English, get ES|QL / SPL / KQL templates back, save and schedule the hunt. HuntAgent never writes raw queries. Saved hunts deep-link into the Investigation Rail via `pivotPath`.
@@ -68,7 +75,7 @@ The orchestrator is a ~600-line LangGraph in [`services/agents/`](services/agent
 - **L0–L4 automation maturity model** — [`apps/docs/docs/concepts/automation-maturity.md`](apps/docs/docs/concepts/automation-maturity.md) plus the marketing surfaces. Ladder: L0 manual → L4 fully autonomous closure with human sign-off.
 - **Public weekly benchmark scoreboard** — [`apps/docs/docs/benchmark-scoreboard.mdx`](apps/docs/docs/benchmark-scoreboard.mdx) reads `apps/docs/static/data/scoreboard.json`, refreshed weekly by `.github/workflows/wet-eval.yml`. Substrate rows are visually separated from wet-eval rows — substrate numbers can never be quoted as live agent performance.
 
-**Security & correctness wave** — 12 critical/high CVE-class fixes shipped before the v8.0 cut. See [`apps/docs/docs/operations/security.md`](apps/docs/docs/operations/security.md) for the full inventory.
+**Security & correctness wave** — 12 critical/high CVE-class fixes that landed ahead of v7.4.0. See [`apps/docs/docs/operations/security.md`](apps/docs/docs/operations/security.md) for the full inventory.
 - Rule-engine `eval()` RCE eliminated — conditions are parsed to a whitelisted AST in [`services/api/app/services/rules_engine.py`](services/api/app/services/rules_engine.py) ([#116](https://github.com/beenuar/AiSOC/pull/116)).
 - `/hunts` and `/cases` tenant isolation enforced at the **query layer** (`WHERE tenant_id = …`), not via RLS alone ([#117](https://github.com/beenuar/AiSOC/pull/117), [#118](https://github.com/beenuar/AiSOC/pull/118)).
 - CORS lockdown — a shared `cors.py` is vendored byte-identical into every Python service and refuses to start with `*` + credentials in production ([#119](https://github.com/beenuar/AiSOC/pull/119)).
@@ -80,7 +87,7 @@ The orchestrator is a ~600-line LangGraph in [`services/agents/`](services/agent
 - Python CodeQL alert count on `main` driven to zero ([#133](https://github.com/beenuar/AiSOC/pull/133), [#136](https://github.com/beenuar/AiSOC/pull/136), [#137](https://github.com/beenuar/AiSOC/pull/137)); enforced as a CI gate going forward.
 - First community contribution merged: [#135](https://github.com/beenuar/AiSOC/pull/135) (UEBA env-var alignment, closes [#134](https://github.com/beenuar/AiSOC/issues/134)). Every UEBA variable accepts both unprefixed (`DATABASE_URL`) and legacy (`UEBA_DATABASE_URL`) forms; unprefixed wins.
 
-**Stage 2 / Stage 3 platform additions** — landed alongside v8.0 wave-1.
+**Stage 2 / Stage 3 platform additions** — landed alongside the architectural foundation above.
 - **Wazuh Indexer ingest connector** — polls `wazuh-alerts-*` over HTTPX, paginates time-windowed queries, retries on 5xx; collapses Wazuh severity into the AiSOC ladder. Docs: [`apps/docs/docs/connectors/wazuh.md`](apps/docs/docs/connectors/wazuh.md). The connector registry now declares **52 first-party connectors**.
 - **auditd `file_tail` connector + `aisoc.rules` profile** — replaces the host-agent dependency for Linux endpoint visibility; 4 new detections pivot on the bundled `aisoc_*` audit keys. Docs: [`apps/docs/docs/connectors/auditd.md`](apps/docs/docs/connectors/auditd.md).
 - **Live Actions dispatcher** — generic vendor/capability surface so plugins can register executors against the in-tree taxonomy (`isolate_host`, `disable_user`, `block_ip`, …) without forking. Unknown pairs return a typed `LiveActionResult(FAILED, "executor_not_found")` — never a 500. Docs: [`apps/docs/docs/concepts/live-actions.md`](apps/docs/docs/concepts/live-actions.md).
@@ -92,7 +99,7 @@ The orchestrator is a ~600-line LangGraph in [`services/agents/`](services/agent
 - **Per-rule cross-fire FP gate** — `services/agents/tests/test_detection_fp_rate.py` replays every rule's `match_when` against every *other* rule's positive fixture; current corpus 816 native rules, worst FPR 0.49% (5% ceiling). Wired into `scripts/run_evals.py` as `suites.detection_fp_rate`.
 - **Operator-facing documentation refresh** — new pages for [notifications](apps/docs/docs/operations/notifications.md), [plugin lifecycle](apps/docs/docs/plugins/lifecycle.md), and [credentials / vault rotation](apps/docs/docs/operations/credentials.md); v2.2 architecture diagram and the corrected **52-connector count** (now including Wazuh Indexer + auditd `file_tail`) rolled through every surface.
 
-The full inventory (with file paths, env-var changes, and test counts) lives in the `[Unreleased]` section of [`CHANGELOG.md`](CHANGELOG.md).
+The full inventory (with file paths, env-var changes, and test counts) lives in the `[7.4.0]` section of [`CHANGELOG.md`](CHANGELOG.md).
 
 ---
 
@@ -990,7 +997,7 @@ terraform apply
 
 ## Roadmap
 
-The public roadmap lives in [ROADMAP.md](ROADMAP.md). All releases through **v7.3.1** have shipped, including:
+The public roadmap lives in [ROADMAP.md](ROADMAP.md). All releases through **v7.4.0** have shipped, including:
 
 - **v6.0 / v6.1** — Investigation Ledger, Ambient Copilot, Responder PWA, public eval harness, MCP server, one-shot demo, autonomous triage agents, investigation chat, coverage advisor, shifts, EASM, MSSP dashboard, STIX/TAXII publishing, automated compliance evidence, AI-generated incident reports.
 - **v7.0** — v1.0 buyer-value plan (16 workstreams): SBOM/SLSA supply chain, threat-intel attribution, executive digest PDF, BYOK per-tenant LLM credentials, air-gap appliance, WCAG 2.2 AA accessibility, ChatOps, telemetry/analytics opt-in, one-click Render deploy.
@@ -998,7 +1005,8 @@ The public roadmap lives in [ROADMAP.md](ROADMAP.md). All releases through **v7.
 - **v7.1.0** — Cloud Security Coverage Wave: documentation backfill for Wiz, AWS Security Hub, and Lacework; two new CNAPP connectors (Prisma Cloud, Orca); three native AWS connectors (GuardDuty, CloudTrail, VPC Flow Logs); dual-mode Kubernetes audit log connector (apiserver webhook + file_tail) with a new `k8s-audit` ingest template.
 - **v7.3.0** — Founder-flow series (PR1–PR7): `docker-compose.dev.yml` alias, `.env.example` cleanup with a pre-filled `AISOC_CREDENTIAL_KEY`, `scripts/run_evals.py --suite` CLI contract, `aisoc serve` / `aisoc db upgrade` / `aisoc mcp serve|install`, the `aisoc submit` CLI command + canonical `examples/alerts/lateral-movement.json` fixture, and the Path C founder-style CLI walkthrough in [`apps/docs/docs/quickstart.md`](apps/docs/docs/quickstart.md). The recorded "fresh-clone to first alert" demo now runs verbatim on `main`.
 - **v7.3.1** — Smoke-test hotfix: idempotent migrations (`005_compliance.sql`, `025_connectors_click_and_connect.sql`, new `042_alerts_schema_drift_fix.sql` adding eleven missing `alerts` columns), and a new `POST /api/v1/alerts/submit` endpoint that synthesises an `Alert` row directly from a batch of OCSF events. `aisoc submit` now targets the new endpoint, so the web console at `/alerts` lights up immediately on a fresh clone without Kafka / Fusion in the loop.
-- **v1.5 console workbench wave (PR-1 → PR-8, on `main`, not yet tagged)** — the SOC operator surface stops being a list of pages and becomes a workbench:
+- **v7.4.0** — Security-hardening and platform release (2026-05-29): prompt-injection sanitizer on the classification agents, cross-tenant isolation across the detection loop and the compliance / phishing / knowledge-base endpoints, a nightly cross-tenant RBAC regression gate, `cryptography` CVE clearance; `DetectAgent.process` wired to the `FusionEngine` with `/investigate` routed through the `RouterOrchestrator` behind `ROUTER_INVESTIGATE`; GCP (Cloud Run) and Azure (Container Apps) Terraform skeletons mirroring the AWS reference; restored live `/metrics` data on `tryaisoc.com/dashboard`; and a large Dependabot + CI maintenance sweep. This release tags the workbench, architectural-foundation, and platform work listed below, all of which had accumulated on `main` since `7.3.1`.
+- **v1.5 console workbench wave (PR-1 → PR-8)** — shipped in v7.4.0; the SOC operator surface stops being a list of pages and becomes a workbench:
   - **PR-1: Global time-window selector + topbar context** — one selector at the top of the console drives every page; persists across reloads, deep-linkable via URL param.
   - **PR-2: Tenant switcher + role badge** — MSSP operators flip tenants from the topbar; the role badge makes it impossible to confuse a `viewer` session with an `admin` session. New endpoint: `GET /api/v1/tenants/me/identity`.
   - **PR-3: Critical severity tier** — the severity ladder is now `info | low | medium | high | critical`. Vendor-native criticals map straight through; confidence (`alert.confidence`, 0–100) is now decoupled from severity.
@@ -1007,7 +1015,7 @@ The public roadmap lives in [ROADMAP.md](ROADMAP.md). All releases through **v7.
   - **PR-6 / W8: Rule Tuning workbench** — `/detection/tuning` ranks noisy rules by precision impact and ships one-click suppression + allow-list edits with full audit trail. Docs: [`apps/docs/docs/console/rule-tuning.md`](apps/docs/docs/console/rule-tuning.md).
   - **PR-7: Operations funnel + pipeline health** — new `/metrics/funnel` and `/health/pipeline` endpoints feed the `FunnelKpiBar` (Detected → Triaged → Investigated → Resolved) and an Efficiency Report. Docs: [`apps/docs/docs/console/funnel-kpis.md`](apps/docs/docs/console/funnel-kpis.md).
   - **PR-8: Zero-prerequisite installer** — `install.sh` / `install.ps1` bootstrap from a clean machine (Docker, Compose, Node, pnpm, Python) with idempotency and a graduated `uninstall.sh`. Surfaced as **Path 0** in [`apps/docs/docs/quickstart.md`](apps/docs/docs/quickstart.md).
-- **Stage 2 / Stage 3 platform additions** — landed alongside v8.0 wave-1:
+- **Stage 2 / Stage 3 platform additions** — shipped in v7.4.0 alongside the architectural foundation below:
   - **Wazuh Indexer ingest connector** + auditd `file_tail` connector + `aisoc.rules` audit profile (replaces the host-agent dependency for Linux endpoint visibility). The connector registry now declares **52 first-party connectors**.
   - **Live Actions dispatcher** — generic vendor/capability surface; plugins register executors against the in-tree taxonomy (`isolate_host`, `disable_user`, `block_ip`, …) without forking. Docs: [`apps/docs/docs/concepts/live-actions.md`](apps/docs/docs/concepts/live-actions.md).
   - **Deterministic NL → ES|QL / KQL / SPL translator** — replaces the template fallback in `/nl_query` with an IR + grammar validator; 50-pair gold eval set scores 100% syntactic, 100% semantic. Air-gapped by default; optional `gpt-4o-mini` enhancement falls back deterministically.
@@ -1016,18 +1024,18 @@ The public roadmap lives in [ROADMAP.md](ROADMAP.md). All releases through **v7.
   - **Azure Container Apps + Postgres Flexible Server Terraform skeleton** — file-for-file mirror of the GCP skeleton on Azure: Container Apps, VNet-private Postgres + Redis, Key Vault, ACR, per-service managed identities. Docs: [`apps/docs/docs/deployment/azure.md`](apps/docs/docs/deployment/azure.md).
   - **Blameless case post-mortem endpoint** — `GET /api/v1/cases/{case_id}/postmortem?format=json|html`; analyst handles are redacted from the narrative. Docs: [`apps/docs/docs/operations/case-reports.md`](apps/docs/docs/operations/case-reports.md).
   - **Per-rule cross-fire FP gate** — `services/agents/tests/test_detection_fp_rate.py` replays every rule's `match_when` against every *other* rule's positive fixture; 816 native rules, worst FPR 0.49% (5% ceiling).
-- **v8.0 wave-1 (on `main`, not yet tagged)** — Architectural foundation for the v8.0 line, landed by [#125](https://github.com/beenuar/AiSOC/pull/125) plus the security and correctness wave that followed:
+- **Architectural foundation (shipped in v7.4.0)** — landed by [#125](https://github.com/beenuar/AiSOC/pull/125) plus the security and correctness wave that followed:
   - **Graph at ingest** — Neo4j v1.0 schema (17 node labels, 14 edge types), batched UNWIND upserts off the Kafka consumer, `security.graph_updates` topic, and OCSF extractors for AWS Security Hub / GitHub audit / Okta system log / Kubernetes audit (`services/ingest/internal/graph/`).
   - **Four-agent rebrand** — `DetectAgent`, `TriageAgent`, `HuntAgent`, `RespondAgent` are now the public façade in `services/agents/app/agents/`, with back-compat aliases so existing imports keep working.
   - **`/hunt` natural-language surface** — `apps/web/src/app/(app)/hunt/` plus `services/api/app/api/v1/endpoints/saved_hunts.py`. Type a hypothesis in English, get ES|QL / SPL / KQL templates back, save and schedule the hunt.
   - **Sixteen first-party connectors** — wave-1 (6 fully tested: tines, torq, falco, pagerduty, opsgenie, confluence_audit) and wave-2 (10 wip, of which cloudflare_zt / sysdig / vault / snowflake already have full fixtures + tests).
   - **L0–L4 automation maturity** — `apps/web/content/papers/l0-l4-automation-maturity.md` + PDF, plus the marketing surfaces (sovereign one-pager, three anchor blog posts, reference-customer template).
   - **Public weekly benchmark scoreboard** — `apps/docs/docs/benchmark-scoreboard.mdx` + `apps/docs/static/data/scoreboard.json`, fed by the weekly `wet-eval.yml` GitHub Action.
-  - **Security wave** — 12 critical/high CVE-class fixes shipped before the v8.0 cut: rule-engine `eval()` RCE elimination ([#116](https://github.com/beenuar/AiSOC/pull/116)), `/hunts` and `/cases` tenant isolation ([#117](https://github.com/beenuar/AiSOC/pull/117), [#118](https://github.com/beenuar/AiSOC/pull/118)), CORS lockdown ([#119](https://github.com/beenuar/AiSOC/pull/119)), playbook SSRF guard ([#120](https://github.com/beenuar/AiSOC/pull/120)), plugin-manager OCI install hardening ([#121](https://github.com/beenuar/AiSOC/pull/121)), audit-log trust-boundary closures ([#122](https://github.com/beenuar/AiSOC/pull/122)), `/alerts/submit` abuse + replay hardening ([#123](https://github.com/beenuar/AiSOC/pull/123)), Pydantic v1 → v2 settings migration ([#124](https://github.com/beenuar/AiSOC/pull/124)), bounded eval + playbook timeouts ([#126](https://github.com/beenuar/AiSOC/pull/126)), dev-mode unification ([#127](https://github.com/beenuar/AiSOC/pull/127)), and untrusted-enrichment sanitisation before LLM ([#128](https://github.com/beenuar/AiSOC/pull/128)).
+  - **Security wave** — 12 critical/high CVE-class fixes that landed ahead of v7.4.0: rule-engine `eval()` RCE elimination ([#116](https://github.com/beenuar/AiSOC/pull/116)), `/hunts` and `/cases` tenant isolation ([#117](https://github.com/beenuar/AiSOC/pull/117), [#118](https://github.com/beenuar/AiSOC/pull/118)), CORS lockdown ([#119](https://github.com/beenuar/AiSOC/pull/119)), playbook SSRF guard ([#120](https://github.com/beenuar/AiSOC/pull/120)), plugin-manager OCI install hardening ([#121](https://github.com/beenuar/AiSOC/pull/121)), audit-log trust-boundary closures ([#122](https://github.com/beenuar/AiSOC/pull/122)), `/alerts/submit` abuse + replay hardening ([#123](https://github.com/beenuar/AiSOC/pull/123)), Pydantic v1 → v2 settings migration ([#124](https://github.com/beenuar/AiSOC/pull/124)), bounded eval + playbook timeouts ([#126](https://github.com/beenuar/AiSOC/pull/126)), dev-mode unification ([#127](https://github.com/beenuar/AiSOC/pull/127)), and untrusted-enrichment sanitisation before LLM ([#128](https://github.com/beenuar/AiSOC/pull/128)).
   - **Static-analysis hygiene** — Python CodeQL alert count on `main` driven to zero by [#133](https://github.com/beenuar/AiSOC/pull/133), [#136](https://github.com/beenuar/AiSOC/pull/136), and [#137](https://github.com/beenuar/AiSOC/pull/137); enforced as a CI gate going forward.
   - **First community contribution** — [#135](https://github.com/beenuar/AiSOC/pull/135) (UEBA service environment-variable alignment, closes [#134](https://github.com/beenuar/AiSOC/issues/134)). Every UEBA variable now accepts both unprefixed (`DATABASE_URL`) and legacy (`UEBA_DATABASE_URL`) forms; unprefixed wins. Documented in [Environment variables](apps/docs/docs/deployment/env-vars.md#ueba-service-servicesueba).
 
-Next (**v8.0 wave-2** — checkpointed with `[~]` in `AISOC_V8_PROGRESS.md`):
+Next (planned — checkpointed with `[~]` in `AISOC_V8_PROGRESS.md`):
 
 - Versioned `:CONFIGURED_AS {ts}` config-snapshot writers for AWS / GitHub / Lacework / Okta (T1.2)
 - `LLMInputContract` fail-closed validator coverage across every sub-agent (T2.3)
