@@ -9,7 +9,12 @@ from typing import Any
 
 from app.tools.registry import RiskClass, tool
 
-# Mock IOC enrichment database (in real life this hits Cyble's CTI APIs)
+# Mock IOC enrichment database (in real life this hits Cyble's CTI APIs).
+#
+# Several entries are intentionally attributed to named actors so the
+# Threat Actor Profiling Agent (t3e-actor-profiling) has a real signal
+# to materialise into ThreatActor / ActorIOCLink rows. Anything without
+# an ``actor`` field is an orphan IOC the profiler will skip.
 _IOC_DB: dict[str, dict[str, Any]] = {
     "185.220.101.42": {
         "type": "ip",
@@ -33,6 +38,56 @@ _IOC_DB: dict[str, dict[str, Any]] = {
         "malware_family": "Cobalt Strike Beacon",
         "first_seen": "2025-11-04",
         "yara_hits": ["cobaltstrike_x64", "shellcode_loader"],
+        "actor": "FIN7",
+        "campaigns": ["Carbanak Q3"],
+    },
+    # APT29 (Cozy Bear, Nobelium) — espionage cluster.
+    "104.21.55.211": {
+        "type": "ip",
+        "threat_score": 90,
+        "tags": ["c2_infrastructure", "cloud_proxy"],
+        "first_seen": "2024-03-04",
+        "actor": "APT29",
+        "campaigns": ["MidnightBlizzard 2024"],
+        "darkweb_mentions": 5,
+    },
+    "msftauth-update.com": {
+        "type": "domain",
+        "threat_score": 87,
+        "tags": ["spear_phishing", "credential_harvester", "m365_lure"],
+        "registered": "2024-01-22",
+        "actor": "APT29",
+        "campaigns": ["MidnightBlizzard 2024"],
+        "darkweb_mentions": 2,
+    },
+    # Lazarus — DPRK financial / supply-chain crew.
+    "45.61.184.77": {
+        "type": "ip",
+        "threat_score": 94,
+        "tags": ["c2_infrastructure", "north_korea"],
+        "first_seen": "2025-06-09",
+        "actor": "Lazarus",
+        "campaigns": ["AppleJeus Refresh"],
+        "darkweb_mentions": 9,
+    },
+    "trader-secure-app.io": {
+        "type": "domain",
+        "threat_score": 91,
+        "tags": ["fake_app", "crypto_theft"],
+        "registered": "2025-05-14",
+        "actor": "Lazarus",
+        "campaigns": ["AppleJeus Refresh"],
+        "darkweb_mentions": 4,
+    },
+    # CL0P — ransomware crew that abuses managed-file-transfer 0-days.
+    "ttps-clop.onion": {
+        "type": "domain",
+        "threat_score": 95,
+        "tags": ["leak_site", "ransomware"],
+        "first_seen": "2023-06-01",
+        "actor": "CL0P",
+        "campaigns": ["MOVEit 2023", "GoAnywhere 2023"],
+        "darkweb_mentions": 28,
     },
 }
 
@@ -157,6 +212,174 @@ async def cti_asm_lookup(domain: str) -> dict[str, Any]:
             {"asset": f"api-staging.{domain}", "issue": "Swagger UI exposed without auth", "severity": "high"},
         ],
     }
+
+
+# Canonical actor profile catalogue. The Threat Actor Profiling agent
+# fuses these "vendor facts" with whatever it observes in IOCs that
+# carry an ``actor`` field, so the per-tenant profile is always a
+# superset of the global catalogue.
+_ACTOR_CATALOGUE: dict[str, dict[str, Any]] = {
+    "FIN7": {
+        "aliases": ["Carbanak", "Carbon Spider"],
+        "description": (
+            "Financially motivated cybercrime crew active since ~2013; "
+            "long history of POS-malware and ransomware affiliations "
+            "(including Darkside and BlackMatter)."
+        ),
+        "motivation": "financial",
+        "sophistication": "advanced",
+        "origin_country": "RU",
+        "target_sectors": ["retail", "hospitality", "financial_services"],
+        "target_regions": ["US", "EU"],
+        "techniques": ["T1566.001", "T1059.001", "T1055", "T1486"],
+        "tools": ["Carbanak", "Griffon", "POWERPLANT", "Cobalt Strike"],
+        "campaigns": ["Carbanak Q3", "BadUSB drops"],
+        "references": [
+            "https://attack.mitre.org/groups/G0046/",
+            "https://www.mandiant.com/resources/blog/fin7-carbanak-cycle",
+        ],
+        "first_observed": "2013-06-01",
+        "confidence": 0.92,
+    },
+    "APT29": {
+        "aliases": ["Cozy Bear", "Nobelium", "Midnight Blizzard", "The Dukes"],
+        "description": (
+            "Russian state-sponsored espionage cluster attributed to the "
+            "SVR. Heavy focus on M365 / cloud identity, supply chain, and "
+            "long-dwell intelligence collection."
+        ),
+        "motivation": "espionage",
+        "sophistication": "advanced",
+        "origin_country": "RU",
+        "target_sectors": [
+            "government",
+            "diplomatic",
+            "technology",
+            "thinktanks",
+        ],
+        "target_regions": ["US", "EU", "UK"],
+        "techniques": ["T1078.004", "T1606", "T1199", "T1098.005"],
+        "tools": ["WellMess", "WellMail", "FoggyWeb", "MagicWeb"],
+        "campaigns": ["SolarWinds 2020", "MidnightBlizzard 2024"],
+        "references": [
+            "https://attack.mitre.org/groups/G0016/",
+            "https://www.microsoft.com/security/blog/midnight-blizzard/",
+        ],
+        "first_observed": "2008-01-01",
+        "confidence": 0.95,
+    },
+    "Lazarus": {
+        "aliases": ["Hidden Cobra", "ZINC", "Diamond Sleet"],
+        "description": (
+            "DPRK state-sponsored crew with both espionage and financial "
+            "lines (cryptocurrency theft, SWIFT fraud)."
+        ),
+        "motivation": "financial",
+        "sophistication": "advanced",
+        "origin_country": "KP",
+        "target_sectors": [
+            "financial_services",
+            "cryptocurrency",
+            "defense",
+            "technology",
+        ],
+        "target_regions": ["US", "EU", "APAC"],
+        "techniques": ["T1566.002", "T1027", "T1059.007", "T1055.012"],
+        "tools": ["AppleJeus", "BLINDINGCAN", "ELECTRICFISH"],
+        "campaigns": ["AppleJeus Refresh", "Operation Dream Job"],
+        "references": [
+            "https://attack.mitre.org/groups/G0032/",
+            "https://www.cisa.gov/news-events/cybersecurity-advisories/aa22-108a",
+        ],
+        "first_observed": "2009-01-01",
+        "confidence": 0.93,
+    },
+    "CL0P": {
+        "aliases": ["Cl0p", "TA505 affiliate"],
+        "description": (
+            "Ransomware-as-a-service operator specialising in mass "
+            "exploitation of managed-file-transfer 0-days (MOVEit, "
+            "GoAnywhere, Accellion FTA) followed by leak-site extortion."
+        ),
+        "motivation": "financial",
+        "sophistication": "intermediate",
+        "origin_country": "RU",
+        "target_sectors": ["healthcare", "financial_services", "manufacturing"],
+        "target_regions": ["US", "EU"],
+        "techniques": ["T1190", "T1486", "T1567.002"],
+        "tools": ["Cl0p ransomware", "FlawedAmmyy", "TrueBot"],
+        "campaigns": ["MOVEit 2023", "GoAnywhere 2023", "Accellion 2021"],
+        "references": [
+            "https://attack.mitre.org/groups/G0092/",
+            "https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-158a",
+        ],
+        "first_observed": "2019-02-01",
+        "confidence": 0.9,
+    },
+}
+
+
+@tool(
+    name="cti.actor_lookup",
+    integration="cyble-cti",
+    risk=RiskClass.READ,
+    description=(
+        "Look up a canonical threat-actor profile by handle (e.g. 'FIN7', "
+        "'APT29') and return aliases, motivation, sophistication, origin, "
+        "target sectors/regions, MITRE techniques, tooling, campaigns, and "
+        "reference URLs from Cyble's actor catalogue."
+    ),
+    params={
+        "type": "object",
+        "properties": {"actor": {"type": "string"}},
+        "required": ["actor"],
+    },
+    result={
+        "type": "object",
+        "properties": {
+            "actor": {"type": "string"},
+            "found": {"type": "boolean"},
+            "aliases": {"type": "array", "items": {"type": "string"}},
+            "description": {"type": "string"},
+            "motivation": {"type": "string"},
+            "sophistication": {"type": "string"},
+            "origin_country": {"type": "string"},
+            "target_sectors": {"type": "array", "items": {"type": "string"}},
+            "target_regions": {"type": "array", "items": {"type": "string"}},
+            "techniques": {"type": "array", "items": {"type": "string"}},
+            "tools": {"type": "array", "items": {"type": "string"}},
+            "campaigns": {"type": "array", "items": {"type": "string"}},
+            "references": {"type": "array", "items": {"type": "string"}},
+            "first_observed": {"type": "string"},
+            "confidence": {"type": "number"},
+        },
+        "required": ["actor", "found"],
+    },
+    cyble_native=True,
+    tags=["enrichment", "moat", "actor"],
+)
+async def cti_actor_lookup(actor: str) -> dict[str, Any]:
+    """Resolve a threat-actor handle (case-insensitive on alias match)."""
+    handle = (actor or "").strip()
+    if not handle:
+        return {"actor": actor, "found": False}
+    record = _ACTOR_CATALOGUE.get(handle)
+    if record is None:
+        # Best-effort alias resolution so analysts pivoting on
+        # "Cozy Bear" or "Nobelium" still hit the APT29 record.
+        lc = handle.lower()
+        for canonical, profile in _ACTOR_CATALOGUE.items():
+            if canonical.lower() == lc:
+                record = profile
+                handle = canonical
+                break
+            if any(a.lower() == lc for a in profile.get("aliases", []) or []):
+                record = profile
+                handle = canonical
+                break
+    if record is None:
+        return {"actor": actor, "found": False}
+    return {"actor": handle, "found": True, **record}
 
 
 @tool(

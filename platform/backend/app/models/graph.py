@@ -45,6 +45,14 @@ class NodeType(str, Enum):
     ROLE = "role"  # key = IAM role ARN, K8s RoleBinding name, etc.
     PERMISSION = "permission"  # key = "<service>:<action>" or scope/grant id
     GROUP = "group"  # key = IdP / IAM group name
+    # Theme 3f: third-party / supply-chain risk fusion. The Vendor node
+    # ties a tenant's declared third-party dependency (CRM SaaS, payroll
+    # provider, OEM hardware vendor, npm publisher) to the breach signals
+    # the Supply-Chain agent observes against it (dark-web mentions of
+    # leaked vendor data, ASM exposures on the vendor's perimeter,
+    # vuln-intel against the vendor's tech stack). Adding here is
+    # schema-safe — NodeType is stored as TEXT, existing rows unaffected.
+    VENDOR = "vendor"  # key = vendor slug, e.g. "okta", "snowflake"
 
 
 class EdgeType(str, Enum):
@@ -67,6 +75,11 @@ class EdgeType(str, Enum):
     MEMBER_OF = "member_of"  # user → group, group → group
     CAN_REACH = "can_reach"  # asset → asset (network reachability)
     CAN_PRIVESC_TO = "can_privesc_to"  # user/role → user/role (BloodHound-style)
+    # Theme 3f: tenant assets/users depending on a third-party vendor.
+    # Direction: asset/user → vendor (the dependent depends on the
+    # provider). When a vendor breach signal fires, the agent walks the
+    # reverse edges to surface "which assets/users does this blast?".
+    DEPENDS_ON = "depends_on"
 
 
 class GraphNode(SQLModel, table=True):

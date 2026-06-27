@@ -23,6 +23,7 @@ from sqlmodel import Session, select
 
 from app.db import engine
 from app.hitl import MfaVerificationError, verify_mfa
+from app.hitl.dry_run import simulate_action, simulate_runbook
 from app.hitl.gateway import gateway
 from app.models.hitl import HitlChannel, HitlRequest, HitlState
 from app.security.tenant import (
@@ -179,3 +180,67 @@ def deny(
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return _req_to_dict(req)
+
+
+# ─── Dry-run / blast-radius preview (t4-dry-run) ─────────────────────
+
+
+class DryRunStep(BaseModel):
+    """One step in a runbook simulation request."""
+
+    tool_name: str = Field(..., description="Registered tool name")
+    params: dict[str, Any] = Field(default_factory=dict)
+
+
+class DryRunRequest(BaseModel):
+    """Single-step or multi-step dry-run simulation payload."""
+
+    tool_name: str | None = Field(
+        None, description="Single-step convenience: tool to simulate"
+    )
+    params: dict[str, Any] = Field(default_factory=dict)
+    steps: list[DryRunStep] | None = Field(
+        None,
+        description=(
+            "Multi-step runbook; takes precedence over `tool_name` when set."
+        ),
+    )
+
+
+@router.post("/dry-run")
+def dry_run(
+    body: DryRunRequest,
+    ctx: TenantContext = Depends(require_tenant),
+) -> dict[str, Any]:
+    """Predict the blast radius of a tool call (or whole runbook).
+
+    Pure read: no DB writes, no external IO, no LLM call. The simulator
+    walks the CMDB (per-tenant) and the Threat Graph to surface:
+
+    - canonical target (criticality, environment, owner, compliance)
+    - first-hop dependents (logins, observed IOCs, group memberships)
+    - reversibility (from the tool registry's reverse-action wiring)
+    - severity hint suitable for the HITL traffic-light
+    - counterfactual "what happens if you skip this?" line
+
+    The HITL gateway calls the same simulator under the hood when an
+    agent files an approval request; this endpoint exposes it for
+    runbook authors and operator-console previews so the analyst sees
+    the same prediction the agent does before submitting the action.
+    """
+    if body.steps:
+        return simulate_runbook(
+            steps=[s.model_dump() for s in body.steps],
+            tenant_id=ctx.active_tenant_id,
+        )
+    if not body.tool_name:
+        raise HTTPException(
+            status_code=400,
+            detail="provide either `tool_name` (+ params) or `steps`",
+        )
+    sim = simulate_action(
+        tool_name=body.tool_name,
+        params=body.params,
+        tenant_id=ctx.active_tenant_id,
+    )
+    return sim.to_dict()

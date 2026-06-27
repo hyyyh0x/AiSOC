@@ -288,6 +288,29 @@ class Settings(BaseSettings):
     exposure_verification_window_seconds: int = 24 * 3600
 
     # ──────────────────────────────────────────────────────────────
+    # Threat Actor Profiling agent (t3e-actor-profiling).
+    # ──────────────────────────────────────────────────────────────
+    # The Actor Profiler scans tenant IOCs, resolves canonical actor
+    # profiles via ``cti.actor_lookup``, and materialises tenant-scoped
+    # ``ThreatActor`` / ``ActorIOCLink`` rows plus ``ATTRIBUTED_TO``
+    # graph edges. Disable on dev boxes where the periodic sweep isn't
+    # useful; the ad-hoc ``POST /actors/sweep`` endpoint stays available.
+    actor_profiler_scheduler_enabled: bool = True
+    # Cadence between full sweeps. Slower than Exposure because
+    # attribution drifts on hour-to-day timescales, not minute-to-hour.
+    # 30 min is plenty fresh for the actor-card UI and keeps the demo
+    # CTI mock from being hammered.
+    actor_profiler_scan_interval_seconds: int = 30 * 60
+    # Initial delay so rolling restarts don't fan out N concurrent
+    # actor-lookup calls.
+    actor_profiler_initial_delay_seconds: int = 60
+    # Hard stop per tenant sweep. Worst case: scan_limit IOCs × one
+    # enrich_ioc call + one actor_lookup per distinct handle + graph
+    # writes. Even at 500 IOCs with cold caches this should land under
+    # 60s; the 120s ceiling is the "downstream API is stuck" tripwire.
+    actor_profiler_sweep_timeout_seconds: int = 120
+
+    # ──────────────────────────────────────────────────────────────
     # Federated cross-tenant signal aggregation (t3b-federated).
     # ──────────────────────────────────────────────────────────────
     # Hash of the current consent terms a tenant must accept to
@@ -348,6 +371,62 @@ class Settings(BaseSettings):
     brand_scan_interval_seconds: int = 6 * 60 * 60  # 6 hours
     brand_initial_delay_seconds: int = 120
     brand_sweep_timeout_seconds: int = 180
+
+    # ──────────────────────────────────────────────────────────────
+    # Third-party / Supply-Chain Risk Fusion (t3f-supply-chain).
+    # ──────────────────────────────────────────────────────────────
+    # Per-tenant agent that fuses CTI signals (dark-web mentions,
+    # brand intel, ASM exposures, vuln intel) against the tenant's
+    # declared third-party footprint and opens proactive cases when
+    # a vendor's rolling risk score crosses the configured threshold.
+    supply_chain_scheduler_enabled: bool = True
+    # Cadence between sweeps. Slower than Exposure (4h vs 1h) because
+    # third-party signals shift on hour-to-day timescales and the
+    # CTI tools we hammer aren't free; we trade freshness for cost.
+    supply_chain_scan_interval_seconds: int = 4 * 60 * 60
+    # Initial delay so a fleet rolling-restart doesn't fan out N
+    # concurrent CTI calls.
+    supply_chain_initial_delay_seconds: int = 90
+    # Hard stop per tenant sweep. Each vendor in the catalogue costs
+    # ~4 CTI tool calls + graph writes; even a tenant with 25 vendors
+    # should land well under this ceiling.
+    supply_chain_sweep_timeout_seconds: int = 240
+    # Open a proactive Case when the rolling 30-day risk score for a
+    # vendor crosses this threshold. Tuned against the deterministic
+    # mock CTI mocks: a critical vendor with one high-confidence
+    # darkweb hit + one ransomware-CVE clears 90 with multiplier=2.0.
+    # Operators can lower this in dev to validate end-to-end without
+    # heavy seed data.
+    supply_chain_case_open_threshold: int = 90
+    # Length of the rolling window over which past-sweep signals are
+    # summed into the per-vendor score. Longer = catches accumulating
+    # risk; shorter = recency-biased.
+    supply_chain_rolling_window_days: int = 30
+
+    # ──────────────────────────────────────────────────────────────
+    # Multi-region active-active SaaS (t6-multi-region).
+    # ──────────────────────────────────────────────────────────────
+    # The region this process is serving. The router compares it to
+    # each tenant's home_region to decide whether to serve the request
+    # locally or forward it to the home-region peer. ``us-east-1``
+    # is the dev default — production deployments override per region.
+    region_id: str = "us-east-1"
+    # Comma-separated list of every region in the active-active mesh,
+    # in the form ``region_id|base_url|residency_zone``. Example::
+    #     us-east-1|https://us-east.aisoc.local|us
+    #     eu-west-1|https://eu-west.aisoc.local|eu
+    # The local region is allowed to appear in the list; it is matched
+    # by ``region_id`` and used to compute the residency zone of the
+    # active deployment.
+    region_peers: str = "us-east-1|http://localhost:8478|us"
+    # Default residency zone for tenants whose ``home_region`` is not
+    # explicitly set. ``us`` and ``eu`` are the two we model in the
+    # tests; production rolls out one zone per region.
+    region_default_residency_zone: str = "us"
+    # Hard refusal: if a tenant's home_region falls outside this set,
+    # reject requests with a 451 ("Unavailable For Legal Reasons")
+    # rather than silently routing them. Empty = no restriction.
+    region_allowed_residency_zones: str = ""
 
 
 settings = Settings()

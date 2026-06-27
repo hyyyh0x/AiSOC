@@ -112,6 +112,31 @@ class AgentName(str, Enum):
     # brand-specific traces (detector reasons, takedown channel,
     # provider acknowledgement) are independently gradable.
     BRAND_RESPONDER = "brand_responder"
+    # Theme 3e: Threat Actor Profiling Agent.
+    # Maintains per-actor profiles (aliases, motivation, sophistication,
+    # geographic origin, target sectors/regions, MITRE techniques, tooling,
+    # campaigns, references, confidence) keyed on a canonical actor handle
+    # (e.g. "FIN7"). Continuously fuses Cyble CTI enrichments returned by
+    # `cti.enrich_ioc` into the profile: every observed IOC attributed to
+    # an actor is recorded as an `ActorIOCLink` so analysts can pivot
+    # "given this IOC, which actor — and what else does that actor use?".
+    # Also projects each profile into the Threat Graph as an ACTOR node
+    # with ATTRIBUTED_TO edges from each IOC, so attack-path / hunter /
+    # investigator agents all see the same first-class actor entity.
+    # READ-only against the live environment; all writes are confined to
+    # the actor profile store and the Threat Graph.
+    ACTOR_PROFILER = "actor_profiler"
+    # Theme 3f: Third-party / Supply-Chain Risk Fusion Agent.
+    # Periodic per-tenant sweep that fuses Cyble CTI signals
+    # (cti.darkweb_search, cti.brand_intel, cti.asm_lookup,
+    # cti.vuln_intel) against the tenant's declared third-party
+    # footprint (Vendor rows). Materialises VendorRiskSignal audit
+    # rows, NodeType.VENDOR + EdgeType.DEPENDS_ON graph topology,
+    # and opens proactive Cases when a vendor's rolling-window risk
+    # score crosses a threshold. READ-only against CTI; all writes
+    # are tenant-scoped (Vendor / VendorRiskSignal / Case rows and
+    # the Threat Graph).
+    SUPPLY_CHAIN = "supply_chain"
 
 
 class TraceStep(str, Enum):

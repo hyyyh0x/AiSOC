@@ -24,7 +24,7 @@ from app.models.detection_validation import ValidationRun, ValidationRunStatus
 from app.api.events import bus
 from app.config import settings
 from app.db import get_session, session_scope
-from app.detections.runtime import get_engine
+from app.detections.runtime import get_engine_for_tenant
 from app.detections.sigma import Hit
 from app.memory import (
     detection_count,
@@ -332,7 +332,11 @@ async def ingest_event(
     # Sigma evaluation uses the flat alias-rich projection so rules in
     # either OCSF or Sysmon dialect match against the same payload.
     sigma_event = ocsf_to_sigma_payload(ocsf)
-    engine = get_engine()
+    # Tenant-aware routing: pick up vertical packs the tenant is
+    # assigned to plus per-tenant calibration (disabled rules, severity
+    # overrides, baselines). Horizontal rules are still included via
+    # the composed pack.
+    engine = get_engine_for_tenant(tenant_id)
     hits = engine.evaluate(sigma_event)
 
     if not hits:
@@ -398,8 +402,13 @@ def list_detection_rules(
 
     Useful for the analyst console "what rules are live?" panel and for
     smoke-testing that the engine actually came up after a deploy.
+
+    Returns the *tenant-effective* rule set: horizontal builtin rules
+    plus every vertical pack the tenant is assigned to, with
+    calibration applied. Analysts see exactly what would fire against
+    their events, not the global catalog.
     """
-    engine = get_engine()
+    engine = get_engine_for_tenant(ctx.active_tenant_id)
     rules = [
         {
             "id": r.id,
@@ -410,6 +419,124 @@ def list_detection_rules(
         for r in engine.pack.rules
     ]
     return {"count": len(rules), "rules": rules}
+
+
+# ── Public OSS detection catalog (t5-oss-detections) ───────────────────
+@router.get("/detections/catalog")
+def public_detection_catalog(
+    pack: str | None = None,
+    source: str | None = None,
+    severity: str | None = None,
+    limit: int = 200,
+    ctx: TenantContext = Depends(require_tenant),
+) -> dict[str, Any]:
+    """Public catalog of every detection rule shipped in the OSS pack.
+
+    Unlike ``/detections/rules`` (which returns the tenant-effective
+    set), this endpoint returns the *static, public* catalog so the
+    marketing/landing page and the contributor docs can link straight
+    to a JSON manifest. It is the source of truth backing the
+    ``/detections-library/`` page on tryaisoc.com.
+
+    Query params (all optional):
+      - ``pack``: filter by pack label, e.g. ``builtin``,
+        ``verticals/finserv``, ``cloud``.
+      - ``source``: ``cyble-native``, ``community``, or ``mirrored``.
+      - ``severity``: ``low``, ``medium``, ``high``, ``critical``.
+      - ``limit``: cap entries returned (default 200, max 1000).
+    """
+    from pathlib import Path  # local import: avoid cold-path cost
+
+    from app.detections.contrib import build_catalog  # noqa: PLC0415
+
+    rules_dir = Path(__file__).resolve().parent.parent / "detections" / "rules"
+    capped = max(1, min(int(limit or 200), 1000))
+    entries = build_catalog(rules_dir, include_verticals=True)
+    filtered = []
+    for e in entries:
+        if pack and e.pack != pack:
+            continue
+        if source and e.provenance.get("source") != source:
+            continue
+        if severity and e.severity != severity.lower():
+            continue
+        filtered.append(e.to_dict())
+        if len(filtered) >= capped:
+            break
+    return {"count": len(filtered), "rules": filtered}
+
+
+@router.get("/detections/catalog/summary")
+def public_detection_catalog_summary(
+    ctx: TenantContext = Depends(require_tenant),
+) -> dict[str, Any]:
+    """Headline numbers for the public OSS detection library.
+
+    The marketing site uses this to render the live counts on the
+    landing page (X rules across Y packs, Z% community-contributed).
+    """
+    from pathlib import Path  # noqa: PLC0415
+
+    from app.detections.contrib import catalog_summary  # noqa: PLC0415
+
+    rules_dir = Path(__file__).resolve().parent.parent / "detections" / "rules"
+    return catalog_summary(rules_dir)
+
+
+class DetectionValidateRequest(BaseModel):
+    """Request body for the contributor-facing validator.
+
+    The CI workflow uses the dedicated ``scripts/validate_detection.py``
+    runner (no auth, fast, deterministic) — but third-party platforms
+    that want to upstream a rule can also POST a raw YAML blob here
+    and get the same H1–H8 / S1–S3 verdict.
+    """
+
+    yaml: str
+    name: str | None = None  # original filename, used for the rule id only
+
+
+@router.post("/detections/validate")
+def validate_detection_yaml(
+    body: DetectionValidateRequest,
+    ctx: TenantContext = Depends(require_tenant),
+) -> dict[str, Any]:
+    """Run the OSS contributor checks against a single YAML rule.
+
+    Returns the same :class:`ValidationReport` shape that
+    ``scripts/validate_detection.py`` writes to stderr in CI, so a
+    contributor's local script and the GitHub workflow agree on what
+    "passing" looks like.
+    """
+    from app.detections.contrib import (  # noqa: PLC0415
+        ValidationIssue,
+        ValidationReport,
+        validate_rule,
+    )
+    from app.detections.sigma import SigmaParseError, SigmaRule  # noqa: PLC0415
+
+    name = body.name or "<inline>"
+    report = ValidationReport(rules_checked=1)
+    try:
+        rule = SigmaRule.from_yaml(body.yaml, source=name)
+    except SigmaParseError as exc:
+        report.errors.append(
+            ValidationIssue(
+                rule_id=name, code="parse", severity="error",
+                message=f"YAML/Sigma parse failed: {exc}",
+            )
+        )
+        report.rejected.append(name)
+        return report.to_dict()
+
+    errors, warnings = validate_rule(rule)
+    report.errors.extend(errors)
+    report.warnings.extend(warnings)
+    if errors:
+        report.rejected.append(rule.id or name)
+    else:
+        report.accepted.append(rule.id or name)
+    return report.to_dict()
 
 
 # ── Detection Knowledge Base (DKB) ─────────────────────────────────────
@@ -595,6 +722,130 @@ def get_case_report(
         # builder asserts again. Surface as 403.
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     return report.to_dict()
+
+
+@router.get("/cases/{case_id}/why-not")
+def case_counterfactual(
+    case_id: int,
+    ctx: TenantContext = Depends(require_tenant),
+) -> dict[str, Any]:
+    """Counterfactual why-not facts for the case file (t4-counterfactual).
+
+    Walks the case's :class:`AgentTrace`, :class:`ToolCall`, and
+    :class:`HitlRequest` rows to produce structured "why this, why not
+    that" rows. Used by the case-file UI to render the audit-grade
+    explanation panel and by the SOC2/ISO27001 evidence pack to ship a
+    human-readable record of every plausible action that *was not*
+    taken (and why).
+
+    Read-only; no LLM call; no external IO. Tenant-scoped.
+    """
+    from app.explain import explain_case  # local import to keep boot lean
+
+    explanation = explain_case(case_id=case_id, tenant_id=ctx.active_tenant_id)
+    if explanation is None:
+        raise HTTPException(status_code=404, detail="case not found")
+    return explanation.to_dict()
+
+
+@router.get("/cases/{case_id}/observability")
+def case_observability_route(
+    case_id: int,
+    ctx: TenantContext = Depends(require_tenant),
+) -> dict[str, Any]:
+    """Per-case observability + cost roll-up (t4-observability).
+
+    Aggregates LLM token spend, agent latency, tool-call duration, and
+    rollback count across the case. Read-only and tenant-scoped.
+    """
+    from app.observability import case_observability  # local import
+
+    obs = case_observability(case_id=case_id, tenant_id=ctx.active_tenant_id)
+    if obs is None:
+        raise HTTPException(status_code=404, detail="case not found")
+    return obs.to_dict()
+
+
+@router.get("/cases/{case_id}/otel")
+def case_otel_route(
+    case_id: int,
+    ctx: TenantContext = Depends(require_tenant),
+) -> dict[str, Any]:
+    """OpenTelemetry-compatible trace export for a case.
+
+    Returns a JSON payload in OTel ``resourceSpans`` shape so it can be
+    POSTed directly to any OTel-compatible collector. Useful for
+    operators who want to pipe per-case agent traces into their
+    existing observability stack (Honeycomb, Datadog, Tempo, Jaeger).
+    """
+    from app.observability import to_otel_payload  # local import
+
+    payload = to_otel_payload(case_id=case_id, tenant_id=ctx.active_tenant_id)
+    if payload is None:
+        raise HTTPException(status_code=404, detail="case not found")
+    return payload
+
+
+@router.get("/observability/summary")
+def observability_summary_route(
+    window_hours: int = 24,
+    ctx: TenantContext = Depends(require_tenant),
+) -> dict[str, Any]:
+    """Tenant-wide observability summary over a rolling window.
+
+    Used by the FinOps dashboard to surface average cost-per-case,
+    token spend, and per-agent breakdown.
+    """
+    from app.observability import platform_observability  # local import
+
+    if window_hours <= 0 or window_hours > 24 * 30:
+        raise HTTPException(
+            status_code=400,
+            detail="window_hours must be between 1 and 720 (30 days)",
+        )
+    obs = platform_observability(
+        tenant_id=ctx.active_tenant_id, window_hours=window_hours
+    )
+    return obs.to_dict()
+
+
+@router.get("/cases/{case_id}/compliance")
+def case_compliance(
+    case_id: int,
+    frameworks: str | None = None,
+    ctx: TenantContext = Depends(require_tenant),
+) -> dict[str, Any]:
+    """SOC2 / ISO27001 / PCI / HIPAA evidence pack for a case (t4-compliance).
+
+    Pass ``frameworks=soc2,iso27001`` to scope the pack. Default
+    returns every supported framework. Read-only; no LLM call;
+    deterministic mapping from rubric to live audit rows.
+    """
+    from app.compliance import (  # local import: heavy module
+        SUPPORTED_FRAMEWORKS,
+        build_evidence_pack,
+    )
+
+    selected: list[str] | None = None
+    if frameworks:
+        selected = [f.strip() for f in frameworks.split(",") if f.strip()]
+        unknown = [f for f in selected if f not in SUPPORTED_FRAMEWORKS]
+        if unknown:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"unsupported frameworks: {unknown}; "
+                    f"choose from {list(SUPPORTED_FRAMEWORKS)}"
+                ),
+            )
+    pack = build_evidence_pack(
+        case_id=case_id,
+        tenant_id=ctx.active_tenant_id,
+        frameworks=selected,
+    )
+    if pack is None:
+        raise HTTPException(status_code=404, detail="case not found")
+    return pack.to_dict()
 
 
 @router.post("/cases/{case_id}/rerun")

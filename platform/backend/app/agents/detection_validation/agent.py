@@ -70,7 +70,7 @@ from app.agents.detection_validation.models import (
     ValidationScanResult,
 )
 from app.agents.detection_validation.simulations import get_simulations
-from app.detections.runtime import get_engine
+from app.detections.runtime import get_engine_for_tenant
 from app.models.case import Case, CaseStatus, Severity
 from app.models.detection_validation import ValidationRun, ValidationRunStatus
 from app.models.trace import AgentName, AgentTrace, TraceStep
@@ -108,10 +108,14 @@ class DetectionValidationAgent:
             raise ValueError("DetectionValidationAgent requires a tenant_id")
         self.session = session
         self.tenant_id = tenant_id
-        # Engine is process-wide and lazily built; calling get_engine()
-        # here just resolves the singleton. We do NOT cache it on the
-        # instance because the detection-author agent may reload the
-        # engine between scans and we want to pick up the new pack.
+        # Engine resolution is deferred to scan time. We use
+        # ``get_engine_for_tenant(self.tenant_id)`` so the BAS replay
+        # exercises the *same* rule set the runtime would evaluate
+        # against this tenant's events — vertical packs they're
+        # assigned to, severity overrides, disabled rules. A
+        # tenant-agnostic engine would silently report green coverage
+        # for rules they've explicitly turned off, which is the
+        # opposite of what BAS is supposed to surface.
 
     # ── public entry point ─────────────────────────────────────────
     async def scan(self) -> ValidationScanResult:
@@ -223,9 +227,12 @@ class DetectionValidationAgent:
 
         Engine is fetched once per scan rather than once per event:
         rebuilding the pack mid-scan would invalidate the run's
-        determinism guarantee.
+        determinism guarantee. The tenant-effective engine is used so
+        drift detection mirrors what the runtime would actually fire
+        on this tenant's traffic, including their vertical packs and
+        calibration overrides.
         """
-        engine = get_engine()
+        engine = get_engine_for_tenant(self.tenant_id)
         results: list[SimulationResult] = []
         for sim in get_simulations():
             fired_rule_ids: set[str] = set()

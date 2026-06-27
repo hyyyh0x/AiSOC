@@ -75,11 +75,22 @@ def get_pack() -> RulePack:
 
 
 def reset() -> None:
-    """Drop the cached engine. Tests only — production should not call this."""
+    """Drop the cached engine. Tests only — production should not call this.
+
+    Also clears every tenant engine in the registry so the next call to
+    :func:`get_engine_for_tenant` re-composes against a freshly-loaded
+    builtin pack. Without this, tests that swap rule directories between
+    cases see stale tenant caches.
+    """
     global _engine, _pack
     with _lock:
         _engine = None
         _pack = None
+    # Local import to avoid an import cycle at module load: registry
+    # depends on runtime for the builtin pack.
+    from . import registry as _registry
+
+    _registry.reset()
 
 
 def reload() -> DetectionEngine:
@@ -91,12 +102,72 @@ def reload() -> DetectionEngine:
     rebuild happens under the same lock as first-use construction so a
     concurrent ``get_engine()`` either sees the previous engine or the
     new one — never a half-built pack.
+
+    Tenant engine caches are invalidated as part of the rebuild because
+    every cached tenant pack embeds the previous builtin rules by
+    reference; reloading the builtin without invalidating tenants
+    would silently keep stale rules live for assigned tenants.
     """
     global _engine, _pack
     with _lock:
         _engine = _build_engine()
         _pack = _engine.pack
-        return _engine
+    # Local import to avoid an import cycle: registry imports runtime
+    # lazily inside get_tenant_engine().
+    from . import registry as _registry
+
+    _registry.invalidate_all()
+    return _engine
+
+
+# ── Tenant-aware routing (t3d-runtime) ─────────────────────────────────
+#
+# Callers that handle multi-tenant traffic (the /events ingestion
+# endpoint, the hunter's retro-replay, the BAS verifier) should use
+# ``get_engine_for_tenant`` instead of ``get_engine``. The returned
+# engine reflects:
+#
+#   * the built-in horizontal rule pack (owned by this module), plus
+#   * every vertical pack the tenant is assigned to via
+#     :class:`TenantPackAssignment`, with
+#   * per-rule calibrations applied (disabled rules dropped, severity
+#     overrides materialized, baselines mounted under ``rule.raw``).
+#
+# The registry caches the composed engine per tenant; mutations to
+# assignments or calibrations go through ``app.detections.calibration``
+# which invalidates the cache automatically.
+def get_engine_for_tenant(tenant_id: str) -> DetectionEngine:
+    """Return the tenant-effective `DetectionEngine`.
+
+    Delegates to :func:`app.detections.registry.get_tenant_engine`; this
+    indirection exists so application code only has to import ``runtime``
+    to do detection. Falling back to :func:`get_engine` would silently
+    skip every vertical pack assigned to the tenant, so callers that
+    have a ``tenant_id`` in scope must use this helper.
+    """
+    from . import registry as _registry
+
+    return _registry.get_tenant_engine(tenant_id)
+
+
+def get_pack_for_tenant(tenant_id: str) -> RulePack:
+    """Return the tenant-effective `RulePack` (introspection)."""
+    return get_engine_for_tenant(tenant_id).pack
+
+
+def invalidate_tenant(tenant_id: str) -> None:
+    """Drop the cached engine for ``tenant_id``.
+
+    Thin re-export of :func:`app.detections.registry.invalidate_tenant`
+    so callers don't have to know about the registry module. Use this
+    after any direct DB write to detection-pack assignment or
+    calibration tables performed outside the
+    :mod:`app.detections.calibration` service layer (e.g. from a
+    migration or admin script).
+    """
+    from . import registry as _registry
+
+    _registry.invalidate_tenant(tenant_id)
 
 
 def add_rule(rule: SigmaRule) -> DetectionEngine:

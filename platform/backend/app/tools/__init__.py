@@ -14,4 +14,5 @@ from app.tools import (  # noqa: F401
     memory,
     asset,
     forensics,
+    cold_archive_tool,
 )

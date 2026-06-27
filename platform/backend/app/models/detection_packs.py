@@ -37,6 +37,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Optional
 
+from sqlalchemy import UniqueConstraint
 from sqlmodel import JSON, Column, Field, SQLModel
 
 
@@ -109,6 +110,18 @@ class TenantPackAssignment(SQLModel, table=True):
     """
 
     __tablename__ = "tenantpackassignment"
+    __table_args__ = (
+        # A tenant can have AT MOST one assignment row per pack. The
+        # calibration service does an app-layer upsert, but a concurrent
+        # second writer would otherwise be able to insert a duplicate
+        # before the first commit lands. The constraint makes that
+        # structurally impossible.
+        UniqueConstraint(
+            "tenant_id",
+            "vertical_pack_id",
+            name="uq_tenant_pack_assignment",
+        ),
+    )
 
     id: Optional[int] = Field(default=None, primary_key=True)
     tenant_id: str = Field(index=True)
@@ -145,6 +158,16 @@ class PackRuleCalibration(SQLModel, table=True):
     """
 
     __tablename__ = "packrulecalibration"
+    __table_args__ = (
+        # The natural key is (tenant_id, rule_id) — see the rationale in
+        # ``calibration.set_calibration``. Enforce it at the DB so a
+        # racing second writer can't bypass the upsert.
+        UniqueConstraint(
+            "tenant_id",
+            "rule_id",
+            name="uq_tenant_rule_calibration",
+        ),
+    )
 
     id: Optional[int] = Field(default=None, primary_key=True)
     tenant_id: str = Field(index=True)

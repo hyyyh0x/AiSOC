@@ -106,9 +106,53 @@ class HitlGateway:
 
         `tenant_id` is mandatory: HITL rows are tenant-scoped so analysts in
         tenant A can never see (let alone approve) tenant B's pending actions.
+
+        When the caller does not provide an explicit ``blast_radius`` we
+        run the dry-run simulator (t4-dry-run) so every approval request
+        ships with a deterministic preview: target CMDB record,
+        first-hop graph dependents, reversibility, severity hint, and
+        the counterfactual "what happens if you skip this?" line. The
+        simulator is a *pure* function so it does not block the agent
+        loop or trigger any external IO.
         """
+        from app.hitl.dry_run import simulate_action  # avoid import cycle
+
         now = datetime.now(timezone.utc)
         expires_at = now + timedelta(seconds=settings.hitl_sla_seconds)
+        # Always run the dry-run simulator and *merge* the result with
+        # any caller-supplied blast_radius dict. We give the simulator
+        # output its own ``simulation`` key so the caller's data never
+        # gets clobbered by the fields we add.
+        merged_blast_radius: dict[str, Any] = dict(blast_radius or {})
+        try:
+            simulation = simulate_action(
+                tool_name=tool_name,
+                params=params,
+                tenant_id=tenant_id,
+            )
+            merged_blast_radius.setdefault("simulation", simulation.to_dict())
+            # Lift the headline fields up so the HITL UI can render the
+            # traffic-light without parsing the nested simulation dict.
+            merged_blast_radius.setdefault(
+                "severity_hint", simulation.severity_hint
+            )
+            merged_blast_radius.setdefault(
+                "reversibility", simulation.reversibility
+            )
+            merged_blast_radius.setdefault(
+                "collateral_count", simulation.collateral_count
+            )
+            merged_blast_radius.setdefault(
+                "counterfactual", simulation.counterfactual
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning(
+                "dry-run simulation failed for tool=%s tenant=%s: %s",
+                tool_name,
+                tenant_id,
+                exc,
+            )
+
         req = HitlRequest(
             case_id=case_id,
             tenant_id=tenant_id,
@@ -120,7 +164,7 @@ class HitlGateway:
             risk_class=risk_class.value if hasattr(risk_class, "value") else str(risk_class),
             params=params,
             rationale=rationale,
-            blast_radius=blast_radius or {},
+            blast_radius=merged_blast_radius,
             state=HitlState.PENDING,
             created_at=now,
             expires_at=expires_at,

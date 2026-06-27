@@ -21,3 +21,11 @@ from app.models.workspace import (  # noqa: F401
     WorkspaceOpKind,
     WorkspaceAuthorKind,
 )
+from app.models.mssp import (  # noqa: F401
+    MsspPartner,
+    MsspProgramTier,
+    MsspTenantLink,
+)
+from app.models.finops import FinOpsBudget  # noqa: F401
+from app.models.academy import AcademyCertificate, AcademyProgress  # noqa: F401
+from app.models.region import TenantHomeRegion, TenantRegionEvent  # noqa: F401
