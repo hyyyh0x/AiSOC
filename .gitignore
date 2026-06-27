@@ -13,6 +13,10 @@ build/
 .next/
 out/
 .turbo/
+# T3.8 — generated Storybook static bundle. The source lives in
+# apps/web/.storybook + apps/web/stories; the built bundle is uploaded
+# as a CI artifact rather than committed.
+apps/web/storybook-static/
 *.egg-info/
 __pycache__/
 *.pyc
