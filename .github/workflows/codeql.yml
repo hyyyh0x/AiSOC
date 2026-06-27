@@ -30,6 +30,15 @@ jobs:
         with:
           languages: ${{ matrix.language }}
           queries: security-and-quality
+          # `plans/cyble-aisoc/` is a historical-spec mirror of the (private)
+          # AISOC-Cyble repository, kept for open-source provenance. Its
+          # `platform/` Python prototype was superseded by the canonical
+          # implementation under `services/` and is not a deployed artifact;
+          # CodeQL findings there would be noise, not actionable security
+          # issues.
+          config: |
+            paths-ignore:
+              - 'plans/cyble-aisoc/**'
 
       - name: Autobuild
         uses: github/codeql-action/autobuild@v4
