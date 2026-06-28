@@ -42,7 +42,7 @@ jobs:
   #   measurement, etc.). They run with jsdom; no browser required.
   # ──────────────────────────────────────────────
   web-test:
-    name: Web — Vitest smoke tests
+    name: Web — Vitest smoke tests + coverage gate
     runs-on: ubuntu-latest
     needs: web-lint
     defaults:
@@ -57,7 +57,21 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
-      - run: pnpm test
+      # Phase 2.2 — coverage gate. Floors are declared in
+      # `vitest.config.ts`'s `test.coverage.thresholds`; vitest exits
+      # non-zero when any floor is breached. The baseline at the time
+      # of introduction was statements 58 / branches 52 / functions
+      # 51 / lines 60; floors sit at baseline - 3pp to absorb
+      # measurement variance. Raise as the suite grows.
+      - run: pnpm test:cov
+      # Upload the coverage report so the marketing site's eval-page
+      # widget (Phase 4.3) can grab a fresh value on every main push.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: web-vitest-coverage
+          path: apps/web/coverage/
+          retention-days: 7
 
   # ──────────────────────────────────────────────
   # Build the Next.js web app
@@ -187,6 +201,58 @@ jobs:
       # locally if this check fails.
       - name: Verify vendored narrative builder is in sync
         run: python scripts/sync_vendored_narrative.py --check
+      # Phase 1.1 — the registry at
+      # `services/connectors/app/connectors/__init__.py` is the single source
+      # of truth for the "N connectors" claim. The check verifies that:
+      #   1. apps/web/src/data/connector-count.json matches the registry
+      #   2. apps/web/src/data/connectorCount.ts matches the JSON
+      #   3. README, ROADMAP, docs/architecture and apps/docs all carry the
+      #      same number as the registry
+      # If this fails, run `python scripts/generate_connector_count.py` and
+      # commit the result.
+      - name: Verify connector count is in sync (Phase 1.1)
+        run: python scripts/generate_connector_count.py --check
+      # Phase 2.3 — every `job_name` in `infra/docker/prometheus.yml` must
+      # point at a hostname:port pair where the service actually exposes
+      # `/metrics`. Before this gate landed, four of five scrape jobs were
+      # silently broken (wrong hostname, wrong port, or a service that has
+      # no `/metrics` route at all). Any future PR that adds a target
+      # without instrumenting the service — or instruments a service but
+      # forgets to register it for scraping — fails CI here.
+      - name: Verify Prometheus scrape config matches reality (Phase 2.3)
+        run: python scripts/audit_prometheus_targets.py --check
+      # Phase 2.5 — every `runbook_url` embedded in an alert rule must
+      # resolve to a real markdown file under `docs/runbooks/`. The
+      # on-call should never get a 404 when they click a page
+      # notification at 3am. Any future PR that adds an alert without
+      # the runbook (or removes a runbook that an alert links to)
+      # fails here.
+      - name: Verify alert rule runbook URLs resolve (Phase 2.5)
+        run: python scripts/audit_runbook_links.py --check
+
+      # Phase 2.6 — every FastAPI service must install the shared
+      # /livez + /readyz probes from `app._health`. The audit script
+      # walks `services/*/app/main.py` and fails if any service is
+      # missing the helper or its wiring. Catches the "added a new
+      # service, forgot the probes" silent regression that
+      # orchestrators would otherwise hide until the first failed
+      # rollout.
+      - name: Verify FastAPI services install /livez + /readyz probes (Phase 2.6)
+        run: python scripts/audit_health_probes.py --check
+
+      # Phase 4.2 — every managed-mode tenant manifest under
+      # `infra/fly/managed/tenants/*.yaml` must parse, carry the
+      # required fields (slug, display_name, base_domain, contact_email,
+      # plan), match the filename↔slug invariant, and stay within the
+      # plan / vm-size / postgres-plan whitelists. The auto-provision
+      # workflow on `main` reads these manifests verbatim and feeds them
+      # into `flyctl apps create / postgres create / redis create`, so a
+      # malformed manifest reaching `main` would mean a half-provisioned
+      # Fly stack and a 3am page. This gate catches it on the PR.
+      - name: Verify managed tenant manifests are well-formed (Phase 4.2)
+        run: |
+          python -m pip install --quiet pyyaml
+          python scripts/audit_managed_tenants.py
 
   python-test:
     name: Python — Tests
@@ -202,6 +268,7 @@ jobs:
         "strawberry-graphql[fastapi]"
         neo4j redis celery httpx aiofiles email-validator PyJWT
         "sqlglot>=23,<27" aiosqlite
+        "croniter>=2.0,<7.0"
         pytest pytest-asyncio
     steps:
       - uses: actions/checkout@v7
@@ -291,15 +358,141 @@ jobs:
         # of this job stays "pure helpers + thin router contracts, no
         # service boot, no Postgres/Kafka/Redis".
         run: pip install --quiet pydantic pydantic-settings pytest pytest-asyncio structlog redis aioredis fastapi httpx aiokafka
-      - name: Run fusion unit tests
+      - name: Install pytest-cov (Phase 2.2 coverage gate)
+        run: pip install --quiet 'pytest-cov>=4,<7'
+      # Phase 2.2 — every wave-1 service now has a measured coverage
+      # floor encoded in its pyproject under `[tool.coverage.report]
+      # fail_under`. Pytest reads it via `--cov-config=pyproject.toml`
+      # and exits non-zero if the floor is breached. Floors are the
+      # branch-on baseline at the time of introduction minus ~2-3pp
+      # to absorb measurement variance; raise them as the suites
+      # grow.
+      - name: Run fusion unit tests + coverage gate
         working-directory: services/fusion
-        run: python -m pytest tests/ -v --tb=short
-      - name: Run honeytokens unit tests
+        run: python -m pytest tests/ --cov-config=pyproject.toml --cov=app --cov-report=term-missing -v --tb=short
+      - name: Run honeytokens unit tests + coverage gate
         working-directory: services/honeytokens
-        run: python -m pytest tests/ -v --tb=short
-      - name: Run purple-team unit tests
+        run: python -m pytest tests/ --cov-config=pyproject.toml --cov=app --cov-report=term-missing -v --tb=short
+      - name: Run purple-team unit tests + coverage gate
         working-directory: services/purple-team
-        run: python -m pytest tests/ -v --tb=short
+        run: python -m pytest tests/ --cov-config=pyproject.toml --cov=app --cov-report=term-missing -v --tb=short
+
+  # ──────────────────────────────────────────────
+  # Phase 2.1 — Wider Python service test matrix.
+  #
+  # Pre-Phase-2 audit (`scripts/list_python_services_with_tests.py`)
+  # found seven services that ship test files but were never gated in
+  # CI:
+  #
+  #   actions       — 99 tests   (live-action dispatcher + executor
+  #                                contracts + chatops + fleetdm +
+  #                                AWS SG client + dry-run sims)
+  #   connectors    — 720 tests  (every shipped connector's normalize
+  #                                step + scheduler + audit-ledger)
+  #   osquery-tls   — 12 tests   (TLS enroll, config, distributed
+  #                                query, log API)
+  #   slack-bot     — 91 tests   (approval flow, audit, timeout,
+  #                                Block Kit, AiSOC API clients,
+  #                                signature verifier)
+  #   teams-bot     — 5 tests    (Adaptive Cards renderer)
+  #   threatintel   — 38 tests   (actor attribution, airgap mode,
+  #                                STIX/TAXII fetcher, auth, scoring)
+  #   ueba          — 6 tests    (config loader + risk scoring core)
+  #
+  # 971 previously-ungated tests now produce real CI signal. Every
+  # suite is offline-safe (respx / monkeypatch for HTTP, in-memory
+  # aiosqlite for SQLAlchemy, no real Kafka / Redis / Postgres).
+  #
+  # Strategy notes:
+  #   * Matrix-per-service so a regression in one suite doesn't mask
+  #     others, and individual jobs surface in the PR check list.
+  #   * One shared dependency install per job — the dep sets overlap
+  #     heavily and resolving them at the pyproject level (poetry
+  #     install) would balloon CI time without buying coverage.
+  #   * `prometheus-client` is required by `threatintel.actors.
+  #     attribution` at module-import time; without it the test
+  #     collector aborts before running a single test.
+  #   * `apscheduler` is required by `connectors.scheduler` at
+  #     module-import time; same import-aborted-the-collector issue.
+  #   * `slack-bolt` pulls `aiohttp` transitively — both must be
+  #     pinned because slack-bolt's async adapter eagerly imports
+  #     `aiohttp.web` even when the test only touches the signature
+  #     verifier.
+  #   * `sqlalchemy[asyncio]` + `aiosqlite` cover the connectors
+  #     scheduler tests and the osquery-tls async session fixture
+  #     (`conftest.py` line 13 imports `async_sessionmaker`).
+  # ──────────────────────────────────────────────
+  python-services-wave-2-test:
+    name: Python — Service unit tests wave 2 (${{ matrix.service }})
+    runs-on: ubuntu-latest
+    needs: python-lint
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - actions
+          - connectors
+          - osquery-tls
+          - slack-bot
+          - teams-bot
+          - threatintel
+          - ueba
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install shared dependency set
+        # Pinned to the pyproject constraints in each service. The set
+        # is the union of every service's runtime + dev deps; this is
+        # cheaper than per-matrix-cell `poetry install` because pip
+        # caches the wheels across matrix runs and the upper bounds
+        # come from the highest-constrained pyproject in the bunch
+        # (e.g. structlog<27, httpx<0.29, pytest-asyncio<2). If a new
+        # service needs an additional package, add it here rather than
+        # introducing per-service install steps — the goal of a
+        # uniform matrix is one install path, one cache hit.
+        run: |
+          pip install --quiet \
+            'fastapi>=0.109,<0.140' \
+            'pydantic>=2.5,<3' \
+            'pydantic-settings>=2.1,<3' \
+            'httpx>=0.27,<0.29' \
+            'structlog>=24.1,<27' \
+            'pytest>=7.4,<9' \
+            'pytest-asyncio>=0.23,<2' \
+            'pytest-cov>=4,<7' \
+            'respx>=0.21,<0.23' \
+            'redis>=5.0,<6' \
+            'aioredis>=2.0,<3' \
+            'aiokafka>=0.10,<0.15' \
+            'aiohttp>=3.9,<4' \
+            'apscheduler>=3.10,<4' \
+            'slack-bolt>=1.18,<2' \
+            'prometheus-client>=0.20,<0.24' \
+            'opentelemetry-instrumentation-fastapi>=0.45b0' \
+            'sqlalchemy[asyncio]>=2,<3' \
+            'aiosqlite>=0.19,<0.22' \
+            'asyncpg>=0.29,<0.31' \
+            'cryptography>=41,<46' \
+            'pyyaml>=6,<7' \
+            'jinja2>=3,<4' \
+            'jsonschema>=4,<5' \
+            'tenacity>=8,<10'
+      # Phase 2.2 — coverage floor read from each service's pyproject.
+      # `--cov-config=pyproject.toml` makes coverage.py honour the
+      # `[tool.coverage.report] fail_under = N` line; pytest-cov then
+      # exits non-zero when the floor is breached. The N is the
+      # branch-on baseline at the time of introduction minus ~2-3pp.
+      - name: Run ${{ matrix.service }} tests + coverage gate
+        working-directory: services/${{ matrix.service }}
+        run: |
+          python -m pytest tests/ \
+            --cov-config=pyproject.toml \
+            --cov=app \
+            --cov-report=term-missing \
+            -v --tb=short
 
   # ──────────────────────────────────────────────
   # SDK packages (Python)

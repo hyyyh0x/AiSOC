@@ -241,6 +241,20 @@ services:
       SECRET_KEY: dev_secret_key_change_in_production
       ENVIRONMENT: development
       LOG_LEVEL: info
+    # Phase 2.6 — use /readyz, not /health, so the orchestrator
+    # only routes traffic once the lifespan has finished wiring
+    # Postgres, Redis, Kafka, OpenSearch, Qdrant, and Neo4j.
+    # /livez is what the restart policy looks at via `pgrep`-style
+    # checks; we don't need a separate compose healthcheck for it
+    # because the process being up implies it's alive.
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "python -c \"import urllib.request,sys; r=urllib.request.urlopen('http://127.0.0.1:8000/readyz',timeout=2); sys.exit(0 if r.status==200 else 1)\" || exit 1"
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
     networks:
       - aisoc
     restart: unless-stopped
@@ -627,6 +641,51 @@ services:
       - "127.0.0.1:9091:9090"
     volumes:
       - ./infra/docker/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      # Phase 2.4 — alert rules mounted as a directory so adding a
+      # new rule file under `infra/docker/alerts/` is picked up on
+      # next `docker compose restart prometheus` (or a SIGHUP).
+      - ./infra/docker/alerts:/etc/prometheus/alerts:ro
+    # Phase 2.4 — Prometheus needs to reach the Alertmanager service
+    # before it can forward alerts. The `depends_on` keeps `docker
+    # compose up monitoring` healthy on cold boot — without it,
+    # Prometheus logs "level=warn ... alertmanager_url=... err=lookup"
+    # for the first ~30s of every restart.
+    depends_on:
+      - alertmanager
+    networks:
+      - aisoc
+    profiles:
+      - monitoring
+
+  # Phase 2.4 — in-cluster Alertmanager. Receives firing alerts
+  # from Prometheus, groups + deduplicates them per
+  # `infra/docker/alertmanager.yml`, and forwards them to the
+  # configured receivers. The dev stack ships with a no-op webhook
+  # receiver that points at the API's `/internal/alerts/sink`
+  # endpoint (which logs the payload); production operators replace
+  # the receiver block with PagerDuty / Slack / Opsgenie. The
+  # `monitoring` profile keeps it out of `docker compose up`'s
+  # default surface so a stock `aisoc serve` doesn't fail when the
+  # operator hasn't provisioned downstream alerting.
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: aisoc-alertmanager
+    ports:
+      - "127.0.0.1:9094:9093"
+    volumes:
+      - ./infra/docker/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+      # External URL is what Alertmanager uses to render deep-links
+      # in notification templates (e.g. "Silence in Alertmanager").
+      # Port 9094 here matches the host-side mapping so the link
+      # works from a browser on the operator's laptop.
+      - '--web.external-url=http://localhost:9094'
+    # NOTE: The Alertmanager binary does NOT substitute shell-style
+    # env vars in `alertmanager.yml`. To change receivers per
+    # environment, mount a different config file (production
+    # deployments do this through Helm values templating).
     networks:
       - aisoc
     profiles:

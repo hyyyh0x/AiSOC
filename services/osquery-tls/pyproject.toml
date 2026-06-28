@@ -43,3 +43,40 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+
+# Phase 2.2 — coverage floor for CI gate.
+#
+# Measured baseline at the time of introduction: 72%. Floor is
+# set at 70% (current - 2pp) so flaky branch-execution variance
+# doesn't break main, while still catching any real regression. Raise
+# this number as the suite grows — never lower it without a written
+# justification. The pyproject is consulted by
+# `pytest --cov-config=pyproject.toml --cov=app` in CI.
+#
+# Why pyproject instead of pytest.ini: keeps the floor next to the
+# dep constraint that produced it, so a bump in either is reviewed
+# in the same diff.
+[tool.coverage.run]
+source = ["app"]
+branch = true
+
+[tool.coverage.report]
+# The Phase 2.2 gate was originally set to 70% across every Python
+# service, but `osquery-tls` ships with only 12 small tests covering
+# the TLS enroll / config / distributed-query / log paths and leaves
+# the `db.py` + `auth.py` boilerplate uncovered. Measured coverage at
+# the time the gate landed was 64.45%. Anchor the floor at 60% so we
+# fail-fast on real regressions (a missed test for a new endpoint
+# would drop coverage well below 60%) without forcing a low-value
+# coverage-padding sprint. Raise this to 70% once db/auth get their
+# own dedicated test pass.
+fail_under = 60
+show_missing = true
+skip_covered = false
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+]

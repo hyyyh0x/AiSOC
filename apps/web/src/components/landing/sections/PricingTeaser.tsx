@@ -15,6 +15,7 @@ import Link from 'next/link';
 import { motion, useReducedMotion } from 'framer-motion';
 import { ArrowRight, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { CONNECTOR_COUNT } from '@/data/connectorCount';
 
 interface Tier {
   id: 'community' | 'team' | 'enterprise';
@@ -34,7 +35,7 @@ const TIERS: ReadonlyArray<Tier> = [
     tagline: 'Self-host the full stack.',
     includes: [
       'MIT-licensed code',
-      'All 69 connectors',
+      `All ${CONNECTOR_COUNT} connectors`,
       'Marketplace',
       'Public benchmark harness',
       'Community Discord',
@@ -71,6 +72,8 @@ const TIERS: ReadonlyArray<Tier> = [
     cta: { label: 'Talk to us', href: '/contact' },
   },
 ];
+
+const FULL_PRICING_HREF = '/pricing';
 
 function TierCard({
   tier,
@@ -180,7 +183,7 @@ export function PricingTeaser() {
 
         <p className="mt-10 text-center text-sm text-velvet-content-tertiary">
           <Link
-            href="/pricing"
+            href={FULL_PRICING_HREF}
             className="inline-flex items-center gap-1 text-velvet-emerald-mint transition-colors duration-200 hover:text-velvet-emerald-mint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-velvet-emerald-mint focus-visible:ring-offset-2 focus-visible:ring-offset-velvet-surface-base"
           >
             See full pricing
