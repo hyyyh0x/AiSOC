@@ -128,5 +128,5 @@ The mapping lives in the connector source — open a PR if your environment clas
 
 ## Related
 
-- [Auth0](./auth0.md) and [Okta](./okta.md) — for IdP-side identity events. Pair them with Vault to cover both the identity plane (who logged in) and the secrets plane (what they read once they did).
+- **Auth0** and **Okta** connectors (see the `marketplace/` registry) — for IdP-side identity events. Pair them with Vault to cover both the identity plane (who logged in) and the secrets plane (what they read once they did).
 - [Kubernetes Audit](./kubernetes-audit.md) — for the cluster control plane that often hosts Vault itself.
