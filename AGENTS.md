@@ -9,6 +9,9 @@
 - After every significant change, push code and update documentation on GitHub immediately — don't wait to be asked.
 - Benchmark data and documentation must be transparent about what is synthetic vs. real; never present fabricated metrics as actual measured performance.
 - When the task is clear, act autonomously — don't ask unnecessary clarifying questions.
+- Standing repo-maintenance loop is the default when no other task is queued: review open PRs at the canonical repo, resolve CI/conflicts, merge them, close issues those PRs resolved, and keep `main` green.
+- After any deploy to `tryaisoc.com`, do an end-to-end customer-journey review (landing → dashboard) and fix broken links or interactive failures before declaring the task done — the user has repeatedly flagged broken items post-deploy.
+- When asked "what else can we improve?" / "what are the missing pieces?" / "make this world-class", produce a concrete competitive gap analysis vs. leading commercial AI-SOC products and implement the gaps — don't just answer in prose.
 
 ## Learned Workspace Facts
 
@@ -39,8 +42,8 @@
 - v1.4 eval harness conventions:
   - Synthetic dataset is fixed at 200 incidents (`services/agents/tests/eval_data/synthetic_incidents.json`) plus an aligned synthetic telemetry corpus (`synthetic_telemetry.jsonl`). Three of the four metrics (`alert_reduction`, `investigation_completeness`, `response_quality`) are substrate self-consistency gates, not agent accuracy scores; only `mitre_accuracy` measures the live agent. The benchmark page (`apps/docs/docs/benchmark.md`) explains which is which.
   - PRs touching the agent, orchestrator graph, prompts, tools, RAG corpus, or detection content must re-grade against the harness and include before/after deltas in the PR body if any axis regresses.
-- Project website at `tryaisoc.com`; domain registered through Cloudflare.
-- Production hosting target is Fly.io for backend services.
+- Project website at `tryaisoc.com`; domain registered through Cloudflare. `tryaisoc.com/signup` is deprecated — the public entry point is `tryaisoc.com/dashboard` (interactive demo). Marketing-site signup CTAs should redirect there, not to a separate signup form.
+- Production hosting target is Fly.io for both backend services and the marketing/demo site (`tryaisoc.com`); deploys use the `fly` CLI with per-session tokens supplied by the user and rotated out-of-band.
 - v1.0 buyer-value plan (`aisoc_v1.0_—_buyer-value_plan_c8116970.plan.md`) is fully implemented (all WS-A through WS-H workstreams completed as of May 2026). Key additions:
   - WS-A: Demo seed script at `services/api/app/scripts/seed_demo.py` — 15 realistic incidents, one-click Render deploy (`render.yaml` + README badge).
   - WS-C: 25 named parameterised playbooks (WS-C1), playbook gallery with eval gate (WS-C2/C3).
