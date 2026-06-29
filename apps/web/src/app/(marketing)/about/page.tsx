@@ -70,11 +70,18 @@ export default function AboutPage() {
           </h1>
           <p className="mt-6 text-lg leading-relaxed text-gray-400">
             We build an open-source AI Security Operations Center. The
-            agent loop, the {CONNECTOR_COUNT} connectors, the detection
-            rules, the benchmark dataset, the marketplace, and every
-            piece of infrastructure code are released under the MIT
-            licence — there is no closed-source &ldquo;Enterprise
-            edition&rdquo; that the community version lags behind.
+            agent loop, the {CONNECTOR_COUNT}
+            {/* Explicit space token: when a JSX text node wraps to a new
+                line immediately after an expression like {CONNECTOR_COUNT},
+                React's text-children whitespace rules silently drop the
+                leading space of the next text segment, producing
+                "the 69connectors" in SSR output. Forcing {' '} keeps the
+                space whether or not we reflow the paragraph later. */}{' '}
+            connectors, the detection rules, the benchmark dataset, the
+            marketplace, and every piece of infrastructure code are
+            released under the MIT licence — there is no closed-source
+            &ldquo;Enterprise edition&rdquo; that the community version
+            lags behind.
           </p>
           <p className="mt-5 text-base leading-relaxed text-gray-400">
             What we sell is the managed tier: someone else runs the
