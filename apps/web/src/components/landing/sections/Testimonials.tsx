@@ -70,8 +70,19 @@ export function Testimonials() {
               study under your byline, with the before/after metrics you
               choose.
             </p>
+            {/*
+              Reference partner CTA → /contact.
+              We do not ship a dedicated /partners landing page yet; the
+              `Testimonials` block exists to turn one of the first design
+              partners into a published case study, and the right path
+              there is a real conversation, not a self-serve form. Once
+              we have ≥2 case studies we can replace this block entirely
+              (see comment at top of file) and re-point the CTA at a
+              partners hub. Until then /contact is the working surface;
+              /partners was 404ing because the page never landed.
+            */}
             <Link
-              href="/partners"
+              href="/contact"
               className="group mt-6 inline-flex h-10 items-center gap-2 rounded-md bg-velvet-emerald-cta px-4 text-sm font-semibold text-velvet-content-primary shadow-[0_1px_0_rgba(255,255,255,0.18)_inset] transition-shadow duration-200 ease-landing-out-quart motion-safe:hover:shadow-glow-emerald-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-velvet-emerald-mint focus-visible:ring-offset-2 focus-visible:ring-offset-velvet-surface-base"
             >
               Become a reference partner
