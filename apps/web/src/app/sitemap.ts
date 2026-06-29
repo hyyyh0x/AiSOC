@@ -22,9 +22,13 @@ export default function sitemap(): MetadataRoute.Sitemap {
     "/copilot",
     "/graph",
   ];
-  // Note: AiSOC is open source and self-hosted — there is no `/signup` route.
-  // Anonymous demo lands directly via `/` and the in-app demo button. The
-  // hosted login at `/login` is the only auth entry point we ship.
+  // Note: AiSOC is open source and self-hosted — there is no `/signup`
+  // page. We do *not* list it here (don't ask search engines to crawl a
+  // route we redirect away), but we 308 `/signup` → `/dashboard` in
+  // apps/web/next.config.js so the public entry point (anonymous demo
+  // tenant) catches any stale external links. The hosted login at
+  // `/login` is the only auth entry point we ship; the `/waitlist`
+  // page is for the separate managed-instance invite-only beta.
   const lowPriority = [
     "/login",
     "/detection",

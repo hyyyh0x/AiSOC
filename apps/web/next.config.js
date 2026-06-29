@@ -71,6 +71,32 @@ const nextConfig = {
     NEXT_PUBLIC_HONEYTOKENS_URL: process.env.NEXT_PUBLIC_HONEYTOKENS_URL || '',
     NEXT_PUBLIC_OSQUERY_TLS_URL: process.env.NEXT_PUBLIC_OSQUERY_TLS_URL || '',
   },
+  // ─── Permanent URL redirects (browser-visible) ───────────────────────────
+  //
+  // These run *before* rewrites and emit real 308 responses (so search
+  // engines update their index, cached links retain SEO value, and
+  // share-card crawlers follow the redirect). Use this surface only for
+  // *retired* public URLs that still get external traffic — every other
+  // route should live under apps/web/src/app/.
+  async redirects() {
+    return [
+      // /signup is intentionally not a page. AiSOC is MIT-licensed and
+      // self-hostable, so the public entry point is the interactive
+      // demo at /dashboard (anonymous, demo-tenant, no account needed).
+      // The /signup URL still appears in cached search results, old
+      // blog posts, and a few external decks, so we 308 it to the
+      // intended destination instead of letting Next.js render the
+      // bare unbranded 404 page. The /waitlist surface is for the
+      // managed-instance invite-only beta — a different flow with its
+      // own page.
+      {
+        source: '/signup',
+        destination: '/dashboard',
+        permanent: true,
+      },
+    ];
+  },
+
   // ─── Same-origin proxy rules ─────────────────────────────────────────────
   //
   // Order matters: more specific paths (contextual, realtime healthz) must
