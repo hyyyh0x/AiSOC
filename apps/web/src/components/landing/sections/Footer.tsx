@@ -94,9 +94,15 @@ const COLUMNS: ReadonlyArray<LinkColumn> = [
     ],
   },
   {
-    heading: 'Status & GitHub',
+    // Renamed from 'Status & GitHub'. The status.tryaisoc.com subdomain
+    // does not exist yet (DNS returns NXDOMAIN), so we removed the
+    // "Status page" row rather than ship a link to nowhere. Re-add it
+    // here as `{ label: 'Status page', href: 'https://status.tryaisoc.com' }`
+    // once the subdomain ships (e.g. Statuspage, Better Stack, or a
+    // hosted Grafana panel) and the column heading can revert to
+    // 'Status & GitHub'.
+    heading: 'GitHub & community',
     links: [
-      { label: 'Status page', href: 'https://status.tryaisoc.com' },
       { label: 'GitHub repo', href: 'https://github.com/beenuar/AiSOC' },
       { label: 'Discord', href: 'https://discord.gg/aisoc' },
       { label: 'Releases', href: 'https://github.com/beenuar/AiSOC/releases' },
