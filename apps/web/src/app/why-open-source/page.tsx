@@ -1,7 +1,11 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { LandingNav } from '@/components/landing/LandingNav';
-import { Footer } from '@/components/landing/Footer';
+// Site-wide nav + footer (ISSUE-006 shell unification, 2026-06-29).
+// `/why-open-source` lives at the app root rather than inside the
+// (marketing) route group, so it imports the shell directly rather
+// than inheriting from `(marketing)/layout.tsx`.
+import { StickyNav } from '@/components/landing/sections/StickyNav';
+import { Footer } from '@/components/landing/sections/Footer';
 import { docs } from '@/lib/docs';
 
 export const metadata: Metadata = {
@@ -108,7 +112,7 @@ const NON_REGULATED_REASONS = [
 export default function WhyOpenSourcePage() {
   return (
     <main className="relative min-h-screen overflow-x-hidden bg-surface-base text-white">
-      <LandingNav />
+      <StickyNav />
 
       <section className="relative px-6 pt-32 pb-16">
         <div className="mx-auto max-w-3xl">

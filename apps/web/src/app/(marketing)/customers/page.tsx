@@ -1,7 +1,5 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { LandingNav } from '@/components/landing/LandingNav';
-import { Footer } from '@/components/landing/Footer';
 import { listCustomers } from '@/lib/customers';
 
 /**
@@ -33,8 +31,6 @@ export default function CustomersIndexPage() {
       data-theme="dark"
       className="relative min-h-screen overflow-x-hidden bg-surface-base text-fg-primary"
     >
-      <LandingNav />
-
       <section className="px-6 pt-32 pb-12">
         <div className="mx-auto max-w-5xl">
           <span className="text-xs font-semibold uppercase tracking-wider text-brand-300">
@@ -152,7 +148,6 @@ export default function CustomersIndexPage() {
         </div>
       </section>
 
-      <Footer />
     </main>
   );
 }

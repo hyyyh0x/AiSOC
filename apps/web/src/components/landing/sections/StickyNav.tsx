@@ -1,12 +1,24 @@
 'use client';
 
 /**
- * Sticky marketing nav for the T6.5 landing page (`apps/web/src/app/page.tsx`).
+ * Sticky marketing nav — canonical site-wide marketing chrome.
  *
- * The existing console nav (`landing/LandingNav.tsx`) is left in place because
- * it's still imported from `/sovereign`, `/blog`, `/customers`, etc. — this
- * file is the dedicated chrome for the GTM landing page only and is scoped
- * to `landing/sections/` so it cannot collide.
+ * Originally written for the T6.5 landing page only, this component is now
+ * the single nav used by the landing page (`apps/web/src/app/page.tsx`),
+ * every page in the `(marketing)` route group, and every standalone
+ * marketing surface (e.g. `/benchmark`, `/why-open-source`, the branded
+ * `not-found`). The older `LandingNav` was deleted as part of the
+ * ISSUE-006 (Phases 6+) shell unification — the two had diverged into
+ * subtly different link sets and footer pairings, and visitors saw the
+ * chrome shift every time they crossed a route boundary.
+ *
+ * Cross-page link rule
+ * --------------------
+ * Hrefs MUST be absolute (`/#solution`, not `#solution`). Hash-only
+ * anchors used to work because StickyNav lived only on `/`, but the
+ * unified nav now renders on subpages too. From `/about`, a bare
+ * `#solution` would scroll to a non-existent local anchor; the
+ * leading `/` makes Next.js navigate to the landing page first.
  *
  * Behaviour matches `docs/design/landing-page-brief.md` §6.1:
  *   - transparent at the very top of the page
@@ -22,12 +34,17 @@ import { GithubMark } from './icons';
 import { docs } from '@/lib/docs';
 import { cn } from '@/lib/utils';
 
+// All hrefs are absolute (`/#section` or `/page`) so the nav works on
+// every route. `Benchmark` and `Pricing` point at the real standalone
+// pages where they exist; `Product` / `Solutions` / `Connectors` still
+// anchor into the landing-page sections because those have no
+// dedicated page yet.
 const NAV_LINKS: ReadonlyArray<{ label: string; href: string }> = [
-  { label: 'Product', href: '#solution' },
-  { label: 'Solutions', href: '#pillars' },
-  { label: 'Connectors', href: '#connectors' },
-  { label: 'Benchmark', href: '#benchmark' },
-  { label: 'Pricing', href: '#pricing' },
+  { label: 'Product', href: '/#solution' },
+  { label: 'Solutions', href: '/#pillars' },
+  { label: 'Connectors', href: '/#connectors' },
+  { label: 'Benchmark', href: '/benchmark' },
+  { label: 'Pricing', href: '/pricing' },
   { label: 'Docs', href: docs('intro') },
 ];
 
@@ -104,7 +121,7 @@ export function StickyNav() {
             <span aria-hidden="true">Star on GitHub</span>
           </a>
           <Link
-            href="#pricing"
+            href="/pricing"
             className="rounded-md px-3 py-1.5 text-sm font-medium text-velvet-content-secondary transition-colors duration-150 ease-landing-out-quart hover:text-velvet-content-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-velvet-emerald-mint focus-visible:ring-offset-2 focus-visible:ring-offset-velvet-surface-base"
           >
             Self-host

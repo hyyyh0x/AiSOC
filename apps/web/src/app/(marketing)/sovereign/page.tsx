@@ -1,7 +1,5 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { LandingNav } from '@/components/landing/LandingNav';
-import { Footer } from '@/components/landing/Footer';
 
 /**
  * `/sovereign` — deployment-flexibility one-pager (T6.3).
@@ -205,8 +203,6 @@ export default function SovereignPage() {
       data-theme="dark"
       className="relative min-h-screen overflow-x-hidden bg-surface-base text-fg-primary"
     >
-      <LandingNav />
-
       {/* Hero */}
       <section className="px-6 pt-32 pb-16">
         <div className="mx-auto max-w-4xl">
@@ -590,7 +586,6 @@ export default function SovereignPage() {
         </div>
       </section>
 
-      <Footer />
     </main>
   );
 }

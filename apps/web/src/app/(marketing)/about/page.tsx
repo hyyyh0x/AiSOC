@@ -1,8 +1,8 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { LandingNav } from '@/components/landing/LandingNav';
-import { Footer } from '@/components/landing/Footer';
 import { CONNECTOR_COUNT } from '@/data/connectorCount';
+// Site-wide nav + footer are rendered by `(marketing)/layout.tsx` so this
+// page is content-only. See ISSUE-006 shell unification (2026-06-29).
 
 /**
  * `/about` — short, opinionated company page.
@@ -55,10 +55,8 @@ export default function AboutPage() {
   return (
     <main
       data-theme="dark"
-      className="relative min-h-screen overflow-x-hidden bg-surface-base text-fg-primary"
+      className="relative overflow-x-hidden bg-surface-base text-fg-primary"
     >
-      <LandingNav />
-
       <section className="px-6 pt-32 pb-16">
         <div className="mx-auto max-w-3xl">
           <span className="text-xs font-semibold uppercase tracking-wider text-brand-300">
@@ -143,7 +141,6 @@ export default function AboutPage() {
         </div>
       </section>
 
-      <Footer />
     </main>
   );
 }

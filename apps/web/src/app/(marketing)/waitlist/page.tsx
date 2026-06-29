@@ -24,17 +24,15 @@
  * once they're logged in. Keeping the form tight is one of the few
  * conversion levers we have on a B2B-SOC waitlist.
  *
- * The visual chrome (LandingNav, dark surface, brand colour, footer)
- * mirrors `/sovereign` so the page feels native to the marketing site
- * without dragging in a separate design system. The Tailwind classes
- * are deliberately the same ones the rest of the marketing site uses
- * so we don't grow the design surface for a single page.
+ * The visual chrome (sticky nav, dark surface, brand colour, footer)
+ * is rendered by `(marketing)/layout.tsx` so this page is content-only
+ * (ISSUE-006 shell unification, 2026-06-29). The Tailwind classes are
+ * deliberately the same ones the rest of the marketing site uses so we
+ * don't grow the design surface for a single page.
  */
 
 import { useMemo, useState } from 'react';
 
-import { LandingNav } from '@/components/landing/LandingNav';
-import { Footer } from '@/components/landing/Footer';
 
 // ---------------------------------------------------------------------------
 // Form schema constants
@@ -163,8 +161,6 @@ export default function WaitlistPage() {
       data-theme="dark"
       className="relative min-h-screen overflow-x-hidden bg-surface-base text-fg-primary"
     >
-      <LandingNav />
-
       {/* Hero */}
       <section className="px-6 pt-32 pb-12">
         <div className="mx-auto max-w-3xl">
@@ -369,7 +365,6 @@ export default function WaitlistPage() {
         </div>
       </section>
 
-      <Footer />
     </main>
   );
 }

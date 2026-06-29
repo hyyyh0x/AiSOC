@@ -2,8 +2,6 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { MDXRemote } from 'next-mdx-remote/rsc';
-import { LandingNav } from '@/components/landing/LandingNav';
-import { Footer } from '@/components/landing/Footer';
 import { mdxBodyComponents } from '@/components/marketing/MdxBody';
 import {
   getCustomerBySlug,
@@ -71,13 +69,11 @@ export default async function CustomerStoryPage({
       data-theme="dark"
       className="relative min-h-screen overflow-x-hidden bg-surface-base text-fg-primary"
     >
-      <LandingNav />
       <CustomerHero study={study} />
       <StatBand stats={study.frontmatter.result_numbers ?? []} />
       <PullQuote study={study} />
       <CustomerBody body={study.body} />
       <RelatedFeatures study={study} />
-      <Footer />
     </main>
   );
 }

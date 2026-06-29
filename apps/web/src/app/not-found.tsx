@@ -1,8 +1,8 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { ArrowRight, Telescope } from 'lucide-react';
-import { LandingNav } from '@/components/landing/LandingNav';
-import { Footer } from '@/components/landing/Footer';
+import { StickyNav } from '@/components/landing/sections/StickyNav';
+import { Footer } from '@/components/landing/sections/Footer';
 import { docs } from '@/lib/docs';
 
 /**
@@ -15,10 +15,19 @@ import { docs } from '@/lib/docs';
  * wrong signal for someone who landed on a stale `/signup` link or
  * mistyped a route.
  *
- * Design: keep the same `LandingNav` + `Footer` chrome the rest of the
- * marketing site uses (so the user never feels like they have left the
- * site), and surface a small list of the destinations they were probably
- * looking for — interactive demo, pricing, contact, docs.
+ * Design: keep the same `StickyNav` + `sections/Footer` chrome the rest
+ * of the marketing site uses (so the user never feels like they have
+ * left the site), and surface a small list of the destinations they
+ * were probably looking for — interactive demo, pricing, contact, docs.
+ *
+ * Why the imports are direct (not the (marketing) layout)
+ * --------------------------------------------------------
+ * `not-found.tsx` lives at the app root, not inside the (marketing)
+ * route group, because Next.js renders it for *any* unmatched route
+ * — including ones outside the marketing surface. Route-group layouts
+ * don't cascade across groups, so this page renders the canonical
+ * chrome directly (same pair the landing page and the (marketing)
+ * group use). See ISSUE-006 shell unification (2026-06-29).
  */
 
 export const metadata: Metadata = {
@@ -68,7 +77,7 @@ export default function NotFoundPage() {
       data-theme="dark"
       className="relative min-h-screen overflow-x-hidden bg-surface-base text-fg-primary"
     >
-      <LandingNav />
+      <StickyNav />
 
       <section className="px-6 pt-32 pb-12">
         <div className="mx-auto max-w-3xl text-center">

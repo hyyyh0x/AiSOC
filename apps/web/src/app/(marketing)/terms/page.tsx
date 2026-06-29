@@ -1,6 +1,4 @@
 import type { Metadata } from 'next';
-import { LandingNav } from '@/components/landing/LandingNav';
-import { Footer } from '@/components/landing/Footer';
 
 /**
  * `/terms` — terms of service.
@@ -72,8 +70,6 @@ export default function TermsPage() {
       data-theme="dark"
       className="relative min-h-screen overflow-x-hidden bg-surface-base text-fg-primary"
     >
-      <LandingNav />
-
       <section className="px-6 pt-32 pb-16">
         <div className="mx-auto max-w-3xl">
           <span className="text-xs font-semibold uppercase tracking-wider text-brand-300">
@@ -101,7 +97,6 @@ export default function TermsPage() {
         </div>
       </section>
 
-      <Footer />
     </main>
   );
 }

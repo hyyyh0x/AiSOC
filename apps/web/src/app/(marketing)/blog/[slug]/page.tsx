@@ -2,8 +2,6 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { MDXRemote } from 'next-mdx-remote/rsc';
-import { LandingNav } from '@/components/landing/LandingNav';
-import { Footer } from '@/components/landing/Footer';
 import { mdxBodyComponents } from '@/components/marketing/MdxBody';
 import {
   formatPostDate,
@@ -72,11 +70,9 @@ export default async function BlogPostPage({
       data-theme="dark"
       className="relative min-h-screen overflow-x-hidden bg-surface-base text-fg-primary"
     >
-      <LandingNav />
       <PostHero post={post} />
       <PostBody body={post.body} />
       <PostFooter post={post} />
-      <Footer />
     </main>
   );
 }
