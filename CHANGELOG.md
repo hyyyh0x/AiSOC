@@ -7,32 +7,467 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
+## [7.5.0] — 2026-06-29
 
-- **Threat-actor attribution could never connect.** The investigation
-  agent defaulted `AISOC_THREATINTEL_URL` to `http://threatintel:8083`,
-  but the `threatintel` service binds port **8005** (Dockerfile,
-  `docker-compose.yml`, and the README service table). Every
-  `POST /api/v1/actors/attribute` call from
-  `services/agents/app/agents/investigation_agent.py` therefore targeted a
-  port nothing listens on and failed (soft-handled, so attribution silently
-  degraded). Corrected the default to `http://threatintel:8005`, fixed the
-  matching `docs/threat-actor-attribution.md` references (and a stale
-  `AISOC_ATTRIBUTION_TIMEOUT_SECONDS` default of `10` → `30`), and added a
-  regression test (`services/agents/tests/test_attribution_service_url.py`).
+v8.0-milestone and trust-readiness release. Folds in the **AiSOC missing
+pieces — Phases 1–5** rollup (PR [#337](https://github.com/beenuar/AiSOC/pull/337);
+25 commits, 188 files, +23 743 / -907), four named v8.0 milestones (T3.7
+NL→playbook, T3.8 design system v2, T4 wave-3 marketplace + 6 hardened
+connectors, T5.3 fidelity loaders), the marketing-shell unification on
+`tryaisoc.com`, the threat-actor attribution RBAC + port fix, and a large
+Dependabot + security sweep that landed on `main` since v7.4.0.
 
-### Security
+### Highlights
 
-- **Optional auth on the threat-actor attribution endpoints
-  (`/api/v1/actors/*`).** The `threatintel` service's actor-attribution
-  router previously accepted any caller. It now supports a shared-secret
-  gate: when `AISOC_THREATINTEL_SERVICE_TOKEN` is set, every
-  `/api/v1/actors/*` call must present `Authorization: Bearer <token>`
-  (constant-time compared, `401` on mismatch); when unset it stays
-  unauthenticated for backward compatibility and logs a warning. The
-  investigation agent forwards the same token via its own
-  `AISOC_THREATINTEL_SERVICE_TOKEN`. Resolves the `[#TODO-attribution-rbac]`
-  caveat in `docs/threat-actor-attribution.md`.
+- **AiSOC missing pieces — Phases 1–5 rollup**
+  (PR [#337](https://github.com/beenuar/AiSOC/pull/337)). Closes every
+  item in `plans/aisoc-missing-pieces/` in a single landing: trust-critical
+  honesty fixes on `/sovereign` + Features + README, CI matrix expanded to
+  7 previously-untested Python services (~971 new test signals), coverage
+  gates, real SOAR executors for SentinelOne EDR / PAN-OS / FortiGate /
+  Cloudflare WAF + DNS / Splunk ES / Elastic / MDE / Entra ID / Google
+  Workspace, real `CreateTicketExecutor` wired to Jira / ServiceNow /
+  PagerDuty, Azure/GCP/Okta/GWS effective-permissions resolvers, the
+  managed-mode auto-provision pipeline (`infra/fly/managed/`), CI-built
+  white-paper PDFs + 90 s Playwright screencast, the deterministic
+  NL → ES|QL / KQL / SPL translator (**81-case eval at 100 % syntactic +
+  100 % semantic**), real-browser visual regression, a buyer-journey E2E,
+  and four immutable ADRs (`docs/decisions/0001`-`0004`).
+- **v8.0 milestones — design system, playbook generator, wave-3
+  connectors, fidelity loaders.**
+  T3.7 NL → playbook generator
+  (PR [#330](https://github.com/beenuar/AiSOC/pull/330));
+  T3.8 design system v2 + Storybook
+  (PR [#331](https://github.com/beenuar/AiSOC/pull/331),
+  `DraftFromPromptDialog` story restored in
+  PR [#335](https://github.com/beenuar/AiSOC/pull/335),
+  Storybook publicDir conflict fixed in
+  PR [#336](https://github.com/beenuar/AiSOC/pull/336));
+  T4 wave-3 marketplace scaffolding + six hardened connectors
+  (PR [#333](https://github.com/beenuar/AiSOC/pull/333),
+  wave-1 parity hardening in
+  PR [#328](https://github.com/beenuar/AiSOC/pull/328));
+  T5.3 AIT-LDS + MITRE Engenuity fidelity loaders
+  (PR [#332](https://github.com/beenuar/AiSOC/pull/332)).
+- **Threat-actor attribution — port fix + optional RBAC.** The
+  investigation agent defaulted `AISOC_THREATINTEL_URL` to
+  `http://threatintel:8083`, but the service binds **8005** — every
+  `POST /api/v1/actors/attribute` from
+  `services/agents/app/agents/investigation_agent.py` therefore hit a port
+  nothing listens on and silently degraded. Default corrected, docs +
+  `AISOC_ATTRIBUTION_TIMEOUT_SECONDS` aligned, regression test added
+  (PR [#327](https://github.com/beenuar/AiSOC/pull/327)). Same release
+  ships an opt-in shared-secret gate
+  (PR [#329](https://github.com/beenuar/AiSOC/pull/329)): when
+  `AISOC_THREATINTEL_SERVICE_TOKEN` is set, every `/api/v1/actors/*` call
+  must present `Authorization: Bearer <token>` (constant-time compared,
+  `401` on mismatch); unset keeps the legacy unauthenticated behaviour
+  and logs a warning. Resolves the `[#TODO-attribution-rbac]` caveat in
+  `docs/threat-actor-attribution.md`.
+- **Marketing-shell unification on `tryaisoc.com` (QA wave, 2026-06-29).**
+  Every `/(marketing)` page, plus the standalone `/not-found`,
+  `/why-open-source`, and `/benchmark` routes, now renders the same
+  `StickyNav` + `sections/Footer` shell. The old simpler `LandingNav.tsx`
+  and `landing/Footer.tsx` were deleted; eleven marketing pages had their
+  per-page nav/footer JSX + imports removed; `(marketing)/layout.tsx`
+  centrally injects the shell; `StickyNav`'s anchors were absolutised
+  (`/#solution`, `/benchmark`, `/pricing`) so they resolve identically
+  from the landing page and from any subpage. Folded together with the
+  smaller fixes from the same QA pass: branded `/not-found` page
+  (`ISSUE-004`), `308 /signup → /dashboard` for the anonymous demo
+  (`ISSUE-003`), `Testimonials` "Become a reference partner" CTA
+  repointed from the 404'ing `/partners` to `/contact` (`ISSUE-002`),
+  dead `status.tryaisoc.com` footer link removed (`ISSUE-005`), and an
+  SSR-whitespace bug on `/about` that rendered "the 69connectors"
+  fixed by forcing an explicit `{' '}` token (`ISSUE-007`).
+- **Knowledge-base ingest — boundary-aware chunking with overlap**
+  (PR [#321](https://github.com/beenuar/AiSOC/pull/321), closes
+  [#277](https://github.com/beenuar/AiSOC/issues/277)). KB ingestion no
+  longer splits mid-sentence or mid-code-fence; the new chunker prefers
+  paragraph / sentence / code-block boundaries, applies a configurable
+  overlap so retrieval doesn't lose context across chunks, and keeps the
+  produced chunks within the embedding model's hard token budget.
+- **Realtime — WS/SSE authenticated via short-lived tickets**
+  (PR [#246](https://github.com/beenuar/AiSOC/pull/246), closes
+  [#239](https://github.com/beenuar/AiSOC/issues/239)). The realtime
+  service's WebSocket and SSE endpoints previously accepted any
+  connection. They now require a short-lived signed ticket that the API
+  mints for the authenticated session, closing the unauthenticated
+  fan-out surface that lived between `services/realtime` and `apps/web`.
+- **`apps/web` — Create Case button wired on `/alerts/{id}`**
+  (PR [#294](https://github.com/beenuar/AiSOC/pull/294), closes
+  [#293](https://github.com/beenuar/AiSOC/issues/293)). The button on
+  alert detail rendered but did nothing; it now POSTs through the cases
+  endpoint and navigates to the new case workspace.
+- **Infrastructure — Terraform CI + missing core modules.** Terraform
+  workflow on every `infra/terraform/**` change
+  (PR [#251](https://github.com/beenuar/AiSOC/pull/251)) runs
+  `terraform init -backend=false`, `terraform validate`, and
+  `terraform fmt -check -recursive` against the AWS, GCP, Azure, and
+  BYOC configurations; the three reusable modules the AWS and BYOC
+  references were already importing — `rds`, `elasticache`, `kafka` —
+  are now actually present in `infra/terraform/modules/`
+  (PR [#252](https://github.com/beenuar/AiSOC/pull/252)) so a fresh
+  `terraform init` against the multi-cloud skeletons no longer errors on
+  missing sources. GCP sensitive-var taint cleared on `for_each`
+  (PR [#243](https://github.com/beenuar/AiSOC/pull/243)); Azure
+  Terraform skeleton documented
+  (PR [#247](https://github.com/beenuar/AiSOC/pull/247)).
+- **Dependency & CI maintenance.** ~15 Dependabot upgrades across the
+  Python, JS, and Go services (FastAPI in `services/{api,actions,agents}`
+  via [#317](https://github.com/beenuar/AiSOC/pull/317),
+  [#319](https://github.com/beenuar/AiSOC/pull/319),
+  [#320](https://github.com/beenuar/AiSOC/pull/320);
+  `next` 16.2.7 → 16.2.9 in
+  [#323](https://github.com/beenuar/AiSOC/pull/323);
+  `framer-motion` 11.18.2 → 12.40.0 in
+  [#307](https://github.com/beenuar/AiSOC/pull/307);
+  `cryptography` in
+  [#301](https://github.com/beenuar/AiSOC/pull/301) /
+  [#302](https://github.com/beenuar/AiSOC/pull/302); Go `redis/go-redis`
+  in [#297](https://github.com/beenuar/AiSOC/pull/297) /
+  [#298](https://github.com/beenuar/AiSOC/pull/298);
+  `strawberry-graphql` in
+  [#318](https://github.com/beenuar/AiSOC/pull/318);
+  `actions/checkout` v6 → v7 in
+  [#316](https://github.com/beenuar/AiSOC/pull/316); plus
+  `@xyflow/react`, `@types/node`, `tsx`, `@tailwindcss/postcss`); pnpm
+  audit high/critical findings cleared
+  (PR [#322](https://github.com/beenuar/AiSOC/pull/322)) so the dep-bump
+  PR queue could actually merge; a duplicate `@mdx-js/react` key that
+  was breaking `pnpm install` removed
+  (PR [#296](https://github.com/beenuar/AiSOC/pull/296)); `aiohttp` bumped
+  to 3.14.1 to clear CVE-2026-34993 + CVE-2026-47265
+  (PR [#295](https://github.com/beenuar/AiSOC/pull/295)).
+
+### AiSOC missing pieces — Phases 1–5 (PR [#337](https://github.com/beenuar/AiSOC/pull/337))
+
+The largest single landing in this release. Twenty-five commits implement
+the entire `plans/aisoc-missing-pieces/` roadmap; nothing in the plan is
+deferred.
+
+**Phase 1 — Trust-critical fixes** (`1.1`–`1.6`): one build-time
+generator + CI gate is now the only place the marquee connector count
+lives; the hard-coded `★ 2.3k` GitHub-stars badge was replaced with a
+live shields.io endpoint; every SOC 2 / ISO 27001 / GDPR / DPDP claim
+across `/sovereign`, `Features.tsx`, and `README.md` is now qualified
+with the honest *"controls aligned to"* framing pending a Type I audit
+(ADR-0002 below); seven 404'ing footer links and two pricing CTAs were
+either stubbed, repointed to `mailto:`, or redirected to GitHub; the
+real `services/connectors/app/connectors/gitlab.py` connector that the
+marquee pill had been claiming was real now exists; and the `/sovereign`
+Terraform deep-links route to the correct subdirectories per cloud, with
+Azure added and the unsupported clouds struck.
+
+**Phase 2 — Operational readiness** (`2.1`–`2.6`): the seven Python
+services that were silently outside the CI matrix
+(`services/{ueba,honeytokens,purple-team,osquery-tls,connectors,actions,
+threatintel}` in practice) are now included; the `pytest` and Vitest
+configurations enforce a coverage floor via `--cov-fail-under` and the
+Vitest `coverage.thresholds`; `prometheus.yml` no longer lists scrape
+targets that don't exist (CI now gates against drift); Prometheus
+alerting rules + Alertmanager container are wired in `docker-compose.yml`;
+seven incident runbooks land under `docs/runbooks/`; and every FastAPI
+service now exposes `/livez` (the process is up) and `/readyz`
+(dependencies are reachable) separate from the existing `/health`.
+
+**Phase 3 — Real SOAR executors** (`3.1`–`3.5`): the executor surface
+stops being a façade. SentinelOne EDR has a real client
+(`services/actions/app/integrations/sentinelone.py`) wired to
+`ContainHostExecutor`; PAN-OS, FortiGate, Cloudflare WAF, and Cloudflare
+DNS firewall each have a real client wired to the appropriate `Block…`
+executor; `AckAlertExecutor` and `SuppressAlertExecutor` now talk to
+Splunk Enterprise Security, Elastic Security, and Microsoft Defender for
+Endpoint directly; Entra ID and Google Workspace are wired as real IdP
+clients for `DisableUserExecutor`; and `CreateTicketExecutor` no longer
+returns `SIMULATED` — it delegates to the existing Jira, ServiceNow, and
+PagerDuty connectors.
+
+**Phase 4 — Larger build-out** (`4.1`–`4.8`):
+
+- **4.1** — Azure RBAC, GCP IAM, Okta, and Google Workspace
+  effective-permissions resolvers (closes T3.2). The investigation agent
+  can now answer "what can this principal actually do?" across all four
+  IdPs, not just AWS.
+- **4.2** — Managed-mode auto-provision pipeline (closes T6.1):
+  `infra/fly/managed/` + a workflow that creates a fresh Fly tenant from
+  a push to `main`, dry-run-safe (won't act without `FLY_API_TOKEN`).
+- **4.3** — `make papers` builds the white-paper PDFs in CI, and a
+  Playwright project records a 90-second product screencast on demand.
+- **4.4** — Connector wave finished: Sysdig, Vault, Snowflake, and
+  Cloudflare Zero Trust manifests + docs.
+- **4.5** — Pluggable event-warehouse provider
+  (`services/api/app/services/event_warehouse/`) with Elasticsearch,
+  Splunk, and Chronicle implementations; `croniter`-backed hunt
+  scheduler (closes Milestone 1F).
+- **4.6** — Deterministic NL → ES|QL / KQL / SPL translator. **81-case
+  eval, 100 % syntactic, 100 % semantic** — every output is parsed
+  through a grammar validator before return.
+- **4.7** — Real-browser visual regression: Playwright + Storybook,
+  pinned to `mcr.microsoft.com/playwright:v1.49.0-jammy`. First CI run
+  needs `--update-snapshots`.
+- **4.8** — Buyer-journey E2E covering `/alerts → Investigation Rail →
+  /playbooks` runs on `pnpm e2e`.
+
+**Phase 5 — Strategic decisions** (`5.1`–`5.4`): four immutable ADRs.
+[`0001-cyble-cti-moat.md`](docs/decisions/0001-cyble-cti-moat.md) retires
+the Cyble-only CTI moat in favour of a pluggable MIT-compatible CTI
+fusion layer; [`0002-compliance-claims.md`](docs/decisions/0002-compliance-claims.md)
+fixes the *"controls aligned to"* framing until a Type I audit lands and
+gates it on a concrete enterprise design partner;
+[`0003-mssp-pricing-shape.md`](docs/decisions/0003-mssp-pricing-shape.md)
+keeps three public tiers, with MSSP getting its own narrative at
+`/mssp`; [`0004-live-demo-strategy.md`](docs/decisions/0004-live-demo-strategy.md)
+retires the Cloudflare Tunnel demo and provisions a dedicated managed-mode
+tenant on Fly.io.
+
+The Playwright projects (`screencast`, `visual`, `journey`) are gated by
+`PLAYWRIGHT_PROJECT` so no project's `webServer` boots when another
+runs. The four ADRs are immutable: future changes write a new ADR that
+supersedes the old one.
+
+### v8.0 milestones — design system v2, NL→playbook, wave-3 connectors, fidelity loaders
+
+**T3.7 — NL → playbook generator**
+(PR [#330](https://github.com/beenuar/AiSOC/pull/330)). Operators can
+type a runbook in English and the agent emits a structured playbook YAML
+that fits the existing `services/actions` schema: graph of executors,
+inputs, and conditionals, with the same JSON-schema validation the
+console editor enforces. Backed by the same deterministic translator
+substrate as Phase 4.6 so the output stays parsable when the LLM goes
+sideways.
+
+**T3.8 — Design system v2 + Storybook**
+(PR [#331](https://github.com/beenuar/AiSOC/pull/331)). The console
+finally has a single source of truth for tokens, primitives, and
+composites. `apps/web/src/components/ui/` is now organized as
+`tokens / primitives / patterns`, every component renders in Storybook,
+and the visual-regression CI gate from Phase 4.7 watches it.
+`DraftFromPromptDialog` was momentarily lost during the migration and
+restored in PR [#335](https://github.com/beenuar/AiSOC/pull/335). The
+Vite `publicDir` copy that broke the Storybook build under the new
+config was disabled in PR
+[#336](https://github.com/beenuar/AiSOC/pull/336) so main CI stays
+green.
+
+**T4 — Wave-3 marketplace scaffolding + six hardened connectors**
+(PR [#333](https://github.com/beenuar/AiSOC/pull/333)). The marketplace
+registry gains the schema + tooling for the third connector wave; six
+wave-2 connectors had their tests and fixtures hardened to wave-1 parity
+in PR [#328](https://github.com/beenuar/AiSOC/pull/328) so every
+first-party connector ships with the same shape of negative-path
+coverage.
+
+**T5.3 — AIT-LDS + MITRE Engenuity fidelity loaders**
+(PR [#332](https://github.com/beenuar/AiSOC/pull/332)).
+Detection-fidelity scoring now ingests two canonical labelled datasets:
+the AI-Threats Labelled Dataset and the MITRE Engenuity ATT&CK
+evaluation set, both fronted by deterministic loaders so the
+fidelity-score outputs are reproducible across CI runs.
+
+### Threat-actor attribution — port fix + RBAC
+
+Two narrowly-scoped fixes that together close the only path by which the
+investigation agent could silently degrade.
+
+`services/agents/app/agents/investigation_agent.py` defaulted
+`AISOC_THREATINTEL_URL` to `http://threatintel:8083`. The service binds
+**8005** in its Dockerfile, in `docker-compose.yml`, and in the README
+service table — every `POST /api/v1/actors/attribute` call therefore hit
+a port nothing listens on. The error path was soft-handled, so
+attribution wasn't 500-ing; it was returning empty
+attribution silently. PR [#327](https://github.com/beenuar/AiSOC/pull/327)
+corrects the default to `http://threatintel:8005`, fixes the matching
+`docs/threat-actor-attribution.md` references, raises the stale
+`AISOC_ATTRIBUTION_TIMEOUT_SECONDS` default from `10` to `30`, and adds
+a regression test (`services/agents/tests/test_attribution_service_url.py`)
+that pins the URL and timeout so this can't drift again.
+
+PR [#329](https://github.com/beenuar/AiSOC/pull/329) layers an opt-in
+shared-secret gate on the actor-attribution router. When
+`AISOC_THREATINTEL_SERVICE_TOKEN` is set, every `/api/v1/actors/*` call
+must present `Authorization: Bearer <token>`; the comparison is
+constant-time, `401` on mismatch. When the env var is unset, the
+endpoints stay unauthenticated for backward compatibility and emit a
+single startup warning so the operator knows the gate isn't on. The
+investigation agent forwards the token via its own
+`AISOC_THREATINTEL_SERVICE_TOKEN`. Resolves the
+`[#TODO-attribution-rbac]` caveat in `docs/threat-actor-attribution.md`.
+
+### Marketing-shell unification on `tryaisoc.com`
+
+Pre-7.5 the marketing surface was rendering two different navigation
+components — the richer `StickyNav` on the landing page and the older
+`LandingNav` everywhere else — and likewise two footers. Subpage visitors
+saw a degraded nav with hash-only anchors that misbehaved (e.g. `#pricing`
+on `/about` was a no-op rather than navigating to `/pricing`).
+
+The unification (commit
+[`77039a41`](https://github.com/beenuar/AiSOC/commit/77039a41)):
+
+- `apps/web/src/app/(marketing)/layout.tsx` now imports `StickyNav`
+  and `sections/Footer` and renders them around `{children}`. Every
+  page in the `(marketing)` route group is content-only.
+- Eleven marketing pages had their per-page nav/footer JSX + imports
+  removed — they now inherit from the layout.
+- The standalone routes (`not-found.tsx`, `why-open-source/page.tsx`,
+  `benchmark/page.tsx`) — which live *outside* `(marketing)` and so
+  can't pick up its layout — import `StickyNav` and `sections/Footer`
+  directly.
+- `StickyNav`'s `NAV_LINKS` were absolutised so they work from any URL:
+  `/#solution`, `/#pillars`, `/#connectors`, `/benchmark`, `/pricing`,
+  `docs/intro`. The "Self-host" CTA points at `/pricing` for the same
+  reason.
+- `apps/web/src/components/landing/LandingNav.tsx` and
+  `apps/web/src/components/landing/Footer.tsx` were **deleted**.
+
+Bundled in the same QA wave:
+
+- **`ISSUE-002`** — `Testimonials` "Become a reference partner" CTA was
+  pointing at `/partners`, which 404s. Now goes to `/contact`.
+- **`ISSUE-003`** — `/signup` 308-redirects to `/dashboard`. The
+  anonymous demo dashboard *is* the signup flow; the old form-fronted
+  signup is gone.
+- **`ISSUE-004`** — `/not-found` is now a branded dark-theme page with
+  the unified shell and a "back to home" CTA, replacing Next's default.
+- **`ISSUE-005`** — Removed the dead `status.tryaisoc.com` link from
+  the footer.
+- **`ISSUE-007`** — `/about` rendered "the 69connectors" because
+  React's JSX text-children whitespace rules drop the leading space of
+  a text segment that wraps right after a `{expression}`. Forced an
+  explicit `{' '}` token so the layout-quirk is immune to reflow.
+
+### Knowledge-base — boundary-aware chunking with overlap
+
+PR [#321](https://github.com/beenuar/AiSOC/pull/321) (closes
+[#277](https://github.com/beenuar/AiSOC/issues/277)). The previous
+chunker split on a flat character budget, which routinely produced
+mid-sentence chunks and severed code fences. The new chunker walks the
+document with `paragraph → sentence → token` precedence, applies an
+overlap (default 64 tokens, configurable) so retrieval doesn't lose
+context across chunks, and keeps every produced chunk under the
+embedding model's hard token budget. Retrieval quality on the existing
+KB ingestion fixtures improved without any model change.
+
+### Realtime — short-lived ticket auth on WS/SSE
+
+PR [#246](https://github.com/beenuar/AiSOC/pull/246) (closes
+[#239](https://github.com/beenuar/AiSOC/issues/239)). The realtime
+service previously accepted any WebSocket or SSE connection — there was
+no way to assert which tenant a stream belonged to except via the
+client's word for it. Connections now require a short-lived signed
+ticket that the API issues to the authenticated session; the ticket
+encodes the tenant and the subscription scope and expires after a small
+window so a stolen ticket can't long-tail. Closes a multi-tenant
+fan-out surface that had been live since the realtime service shipped.
+
+### Infrastructure — Terraform CI + missing core modules
+
+PR [#251](https://github.com/beenuar/AiSOC/pull/251) — every push that
+touches `infra/terraform/**` now runs `terraform init -backend=false`,
+`terraform validate`, and `terraform fmt -check -recursive` against the
+AWS, GCP, Azure, and BYOC configurations. The same gates ran locally in
+the v7.4.0 deploys; they're now actually enforced.
+
+PR [#252](https://github.com/beenuar/AiSOC/pull/252) — the AWS and BYOC
+references in v7.4.0 imported `infra/terraform/modules/rds`,
+`modules/elasticache`, and `modules/kafka` from sources that did not
+exist in the repo. The three modules are now actually present, so a
+fresh `terraform init` against the multi-cloud skeletons no longer
+errors on a missing source. PR
+[#243](https://github.com/beenuar/AiSOC/pull/243) drops the
+sensitive-var taint from `for_each` in the GCP module so the plan stays
+clean. PR [#247](https://github.com/beenuar/AiSOC/pull/247) documents
+the Azure Terraform skeleton end-to-end in `apps/docs/`.
+
+### Dependency & CI maintenance
+
+Around fifteen Dependabot landings since v7.4.0; the headline ones:
+
+- **FastAPI** updated in `services/api`, `services/actions`, and
+  `services/agents` (PRs
+  [#317](https://github.com/beenuar/AiSOC/pull/317),
+  [#319](https://github.com/beenuar/AiSOC/pull/319),
+  [#320](https://github.com/beenuar/AiSOC/pull/320)).
+- **`next`** 16.2.7 → 16.2.9 (PR
+  [#323](https://github.com/beenuar/AiSOC/pull/323)).
+- **`framer-motion`** 11.18.2 → 12.40.0 (PR
+  [#307](https://github.com/beenuar/AiSOC/pull/307)).
+- **`cryptography`** updated in `services/api` and `services/actions`
+  (PRs [#301](https://github.com/beenuar/AiSOC/pull/301),
+  [#302](https://github.com/beenuar/AiSOC/pull/302)).
+- **`redis/go-redis/v9`** updated in `services/enrichment` and
+  `services/ingest` (PRs
+  [#297](https://github.com/beenuar/AiSOC/pull/297),
+  [#298](https://github.com/beenuar/AiSOC/pull/298)).
+- **`strawberry-graphql`** updated in `services/api`
+  (PR [#318](https://github.com/beenuar/AiSOC/pull/318)).
+- **`actions/checkout`** v6 → v7 across every workflow
+  (PR [#316](https://github.com/beenuar/AiSOC/pull/316)).
+- **`aiohttp`** 3.14.1 to clear CVE-2026-34993 + CVE-2026-47265
+  (PR [#295](https://github.com/beenuar/AiSOC/pull/295)).
+- **pnpm audit** cleared of all high/critical findings
+  (PR [#322](https://github.com/beenuar/AiSOC/pull/322)) so the dep-bump
+  queue could merge without the global gate failing on unrelated noise.
+- **`pnpm-lock.yaml`** duplicate `@mdx-js/react` key fixed
+  (PR [#296](https://github.com/beenuar/AiSOC/pull/296)) — was breaking
+  `pnpm install` on fresh clones.
+- Other dev/test bumps: `@xyflow/react` 12.10.2 → 12.11.0
+  (PR [#283](https://github.com/beenuar/AiSOC/pull/283)),
+  `@types/node` 20.19.39 → 25.9.2
+  (PR [#285](https://github.com/beenuar/AiSOC/pull/285)),
+  `tsx` 4.22.1 → 4.22.4 (PR
+  [#306](https://github.com/beenuar/AiSOC/pull/306)),
+  `@tailwindcss/postcss` 4.3.0 → 4.3.1 (PR
+  [#305](https://github.com/beenuar/AiSOC/pull/305)).
+
+### Docs
+
+- `AISOC_V8_PROGRESS.md` tracker re-introduced
+  (PR [#334](https://github.com/beenuar/AiSOC/pull/334)) so the v8.0
+  milestone burn-down lives at the repo root again.
+- `AGENTS.md` updated to record AiSOC (`github.com/beenuar/AiSOC`) as the
+  single source of truth — the older `AISOC-Cyble` mirror is now
+  archived (PR [#326](https://github.com/beenuar/AiSOC/pull/326);
+  archive-notice sync in PR
+  [#325](https://github.com/beenuar/AiSOC/pull/325); `plans/cyble-aisoc/`
+  subtree merged for posterity in PR
+  [#324](https://github.com/beenuar/AiSOC/pull/324)).
+- Marketing-page docs links repointed at the Docusaurus site
+  (PR [#245](https://github.com/beenuar/AiSOC/pull/245)).
+- Connector pages — Vault → Auth0/Okta cross-links unbroken
+  (post-merge fix on `main`).
+- `README.md` synced to v7.4.0 ahead of this release
+  (PR [#246](https://github.com/beenuar/AiSOC/pull/246)).
+
+### Changed
+
+- **`VERSION`** bumped 7.4.0 → 7.5.0.
+- **`apps/web/package.json`** bumped 7.3.1 → 7.5.0. The web app's
+  `package.json` had drifted from `VERSION` since the v7.3.1 hotfix;
+  this release reconciles them.
+- **`README.md`** version badge + headline updated to v7.5.0.
+
+### Migration notes
+
+None required for users on v7.4.0 — every change in this release is
+either additive (new endpoints, new env vars defaulting to safe
+unauthenticated behaviour, new connectors and executors) or a pure bug
+fix to existing behaviour. Specifically:
+
+- The threat-actor attribution port fix changes a *default* — if you
+  had explicitly set `AISOC_THREATINTEL_URL` in your environment, it is
+  honoured unchanged.
+- The optional `AISOC_THREATINTEL_SERVICE_TOKEN` gate is off until you
+  set it. Set it on both the `agents` and `threatintel` services to
+  turn the gate on.
+- The Realtime short-lived-ticket auth is enforced server-side; the
+  `apps/web` client mints + refreshes tickets automatically against the
+  authenticated API session. No client work is required for in-tree
+  consumers; external SSE consumers must adopt the ticket flow.
+- The marketing-shell unification is a `tryaisoc.com`-only change; it
+  doesn't touch the console at `tryaisoc.com/dashboard` or any
+  product surface.
 
 ## [7.4.0] — 2026-05-29
 
