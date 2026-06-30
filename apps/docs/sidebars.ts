@@ -50,6 +50,7 @@ const sidebars: SidebarsConfig = {
       type: "category",
       label: "Architecture",
       items: [
+        "architecture/overview",
         "architecture/agents",
         "architecture/graph-schema",
         "architecture/itsm-as-source-of-truth",
@@ -109,6 +110,7 @@ const sidebars: SidebarsConfig = {
         "operations/secrets",
         "operations/airgap",
         "operations/air-gapped",
+        "operations/codespaces",
         "operations/theming",
         "operations/upgrades",
         "operations/notifications",
