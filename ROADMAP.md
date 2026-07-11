@@ -24,7 +24,7 @@ A proof-first, security-first program to make every README claim gate-backed, cl
 
 - [x] Phase 0 — Reality audit (claim-to-gate matrix, ranked overclaims/untested-paths/circular-gates)
 - [x] Phase 1 — Four existential holes (prompt injection, memory poisoning, cross-store tenant isolation, data-exfiltration/redaction, cost DoS, vault)
-- [ ] Phase 2 — Supply chain + truth (SAST/deps/containers/secrets/IaC gates, signed attested releases, hard-fail insecure prod defaults, README honesty)
+- [x] Phase 2 — Supply chain + truth (security.yml scanners, claim-gate ratchet, hard-fail insecure prod defaults, TRADEMARK, verifying-releases, license fix; per-image SBOM/cosign/SLSA + SHA-pin = continuation)
 - [ ] Phase 3 — Integration / E2E / chaos / DR (real-container spine test, backup-restore, chaos, upgrade)
 - [ ] Phase 4 — Real evals + detection content truth table (third-party-labeled corpus, hallucination/calibration/abstention, model matrix)
 - [ ] Phase 5 — Data spine correctness (schema registry, DLQ, idempotency, watermarking, backfill/replay, lineage)
