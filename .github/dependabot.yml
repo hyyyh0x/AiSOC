@@ -39,6 +39,21 @@ updates:
       # ESLint-10-compatible release, then bump the family in one pass.
       - dependency-name: "eslint"
         update-types: ["version-update:semver-major"]
+      # Hold `typescript` on v6: TypeScript 7 (the native-port compiler)
+      # fails `apps/web` type-checking (`Web — Lint & Type-check`). Moving
+      # to TS 7 needs a dedicated migration PR with the web types fixed and
+      # the whole toolchain re-verified — not a drive-by dependency bump.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+      # Hold the Storybook family on v9. Storybook requires every
+      # `@storybook/*` package (and `storybook` core) to share one major;
+      # dependabot proposes them piecemeal (e.g. addon-themes 10 while core
+      # is 9), which breaks the Storybook build. Bump the whole stack to 10
+      # in one coordinated migration PR, then drop this ignore.
+      - dependency-name: "storybook"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@storybook/*"
+        update-types: ["version-update:semver-major"]
 
   # ── pip (api) ────────────────────────────────────────────────
   - package-ecosystem: pip
