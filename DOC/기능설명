@@ -1,0 +1,323 @@
+# 목차
+
+- [1. Dashboard](#dashboard)
+- [2. SOC Insights](#soc-insights)
+- [3. Threat Operations](#threat-operations)
+  - [Alerts](#alerts)
+  - [Investigation Queue](#investigation-queue)
+  - [Cases](#cases)
+  - [Hunt](#hunt)
+  - [Detection Rules](#detection-rules)
+  - [Detection Catalog](#detection-catalog)
+  - [MITRE Coverage](#mitre-coverage)
+  - [Detection Tuning](#detection-tuning)
+  - [Shifts](#shifts)
+- [4. Intelligence](#intelligence)
+  - [Threat Intel](#threat-intel)
+  - [Attack Graph](#attack-graph)
+  - [AI Copilot](#ai-copilot)
+  - [Investigation Chat](#investigation-chat)
+  - [Coverage Advisor](#coverage-advisor)
+  - [EASM](#easm)
+- [5. Automation](#automation)
+  - [Playbooks](#playbooks)
+  - [Marketplace](#marketplace)
+  - [File Integrity (FIM)](#file-integrity-fim)
+  - [Honeytokens](#honeytokens)
+  - [Purple Team](#purple-team)
+- [6. Platform](#platform)
+  - [Get started](#get-started)
+  - [Connectors](#connectors)
+  - [Roles & Permissions](#roles--permissions)
+  - [Compliance](#compliance)
+  - [MSSP Dashboard](#mssp-dashboard)
+  - [Team Analytics](#team-analytics)
+  - [SLA Tracking](#sla-tracking)
+  - [Executive Digest](#executive-digest)
+  - [Cost Dashboard](#cost-dashboard)
+  - [Audit Log](#audit-log)
+  - [Settings](#settings)
+
+---
+
+# Dashboard
+- 7개의 위젯으로 나눠져있음
+- 백엔드 API에서 1분마다 가져옴.
+    - 백엔드가 죽거나 데이터가 없으면 모의 데이터(Mock Data)를 가져온다.
+- 위젯 7가지
+    1. welcome
+        - 환영헤더
+    2. funnel-kpis
+        - 로그가 걸러지는 과정과 관제실의 효율성을 6개의 요약 타일(숫자판) 로 실시간 정리해 보여주는 역할
+            1. Events of Interest (보안 이벤트)
+                - 1차로 걸러낸 로그들
+            2. Correlation Instances (연관 인스턴스)
+                - 흩어진 이벤트들을 "하나의 시나리오"로 묶어낸 그룹 수
+            3. Alerts Generated (발생한 경보)
+                - 최종적으로 분석가가 처리해야 한다고 판단되어 발행된 진짜 경보 수
+            4. Signal / Noise (신호 대 잡음비)
+                - 발생한 전체 경보 중 진짜 공격(정탐)이 차지하는 비율 (이 비율이 높을수록 오탐이 적고 효율적인 관제실이라는 뜻)
+            5. MTTD (Mean Time to Detect / 평균 탐지 시간)
+                - 최초 공격 징후가 발생하고 시스템이 탐지하기까지 걸린 평균 시간 (초/분/시간 단위)
+            6. Analyst Queue (분석가 대기열)
+                - 아직 분석가가 확인하지 못하고 대기 중인 미해결 경보 건수
+        ![funnel](image.png)
+    3. efficiency-and-pipeline
+        - 왼쪽 = 효율성 보고서
+            1. Correlation efficiency (연관 분석 효율)
+                - 수집된 날것의 이벤트들 중에서 "의미 있는 공격 시나리오로 잘 묶인 비율".
+            2. Alert yield (경보 생산율)
+                - 들어온 전체 이벤트 중 "최종적으로 진짜 경보(Alert)가 된 비율"
+            3. MITRE coverage
+        - 오른쪽 = 파이프라인 상태
+            - 보안 데이터는 수집된 후 분석가 눈에 보이기까지 총 5개의 정밀 가공 단계를 거치는데, 이 위젯은 각 단계가 정체 없이 잘 돌고 있는지 감시하는 역할을 한다.
+                1. Ingest (수집): 외부 장비(Splunk, CrowdStrike 등)에서 원본 로그를 가져오는 입구 단계.
+                2. Normalize (표준화): 중구난방인 로그 포맷을 플랫폼 표준 규격(OCSF)으로 통일하는 단계.
+                3. Fuse (알람 융합): 수많은 잔챙이 로그들을 덩어리로 합쳐서 노이즈를 1차로 줄이는 단계.
+                4. Correlate (연관 분석): 여러 장비에서 수집된 로그들을 엮어 지능형 해킹 시나리오를 완성하는 단계.
+                5. Alert (최종 경보): 가공이 끝난 경보를 대시보드로 쏘아 올려 분석가에게 배달하는 출구 단계.
+
+                - Backlog (대기열/정체량): 이 단계에서 처리되지 못하고 쌓여서 밀려 있는 대기 데이터 수
+                - p95 (95% 지연 시간): 데이터가 이 단계를 통과하는 데 걸리는 시간 중 상위 95% 수준의 처리 시간. (대부분의 데이터가 얼마나 빠르게 처리되는지 보여주는 실시간 속도 지표이다.)
+                - Errors (에러율): 처리 과정에서 실패하거나 에러가 난 비율.
+            ![alt text](image-1.png)
+    4. top-metrics
+        - Active Alerts (전체 경보): "어제 대비 12% 증가" 같은 실시간 증감 트렌드와 오늘 새로 발생한 경보 수를 보여줌
+        - Critical (심각한 경보): "당장 처리 필요"라는 하단 설명과 함께 가장 위험한 경보 개수만 빨갛게 경고한다.
+        - Open Cases (열린 사건): 단순 경보를 넘어 실제 '보안 사고 조사 단계'로 격상되어 진행 중인 사건 수를 보여준다.  
+        - MTTR (평균 조치 시간): 사건 해결에 평균 몇 분(m)이 걸리는지 보여준다. 보안 요원들이 얼마나 빠르게 대응하고 있는지 보여주는 성적표.
+        - Connected Sources (정상 연결 장비): 현재 살아있는 보안 장비 개수를 보여준다.
+        ![alt text](image-5.png)
+    5. charts-row
+        - 왼쪽 = 24시간 유입 추이
+            - 지난 24시간 동안 경보가 몇 시에 쏟아졌는지 파란색 면적 그래프로 보여준다.
+        - 오른쪽 = 위험도 분포 도넛 차트
+            - 전체 경보 중 Critical(빨강), High(주황), Medium(노랑), Low(파랑) 등의 비율이 각각 얼마나 차지하는지 원형으로 보여준다.
+        ![alt text](image-4.png)
+    6. bottom-row
+        - 왼쪽 = MITRE ATT&CK 침투 단계 그래프
+        - 가운데 = 연결 장비별 수집 기여도
+            - 어떤 장비가 로그를 가장 많이 보내고 있는지 보여줌
+        - 실시간 경보 피드
+            - 새로운 위협이 잡힐 때마다 화면 아래에서 위로 한 줄씩 실시간으로 뿜어 나오며 갱신되는 라이브 텍스트 창
+        ![alt text](image-3.png)
+    7. soc-performance
+        - 9개 성과 카드
+            - MTTD, MTTR, MTTC, ESCALATION RATE, FALSE POSITIVE RATE, ALERT VOLUME(7D), CASES OPENED(7D), CASES CLOSED(7D), ANALYST OVERRIDES(7D)
+        - Confidence Calibration(7D)
+            - AI가 공격이라고 말할 때 진짜 정탐이었는지 점검하는 그래프
+            - 선이 파란색 영역에 있으면 잘 예측하고 있다는 뜻 -> 선이 초록색으로 뜨고 아니면 빨간색으로 뜬다.
+        - ATT&CK Heatmap
+            - 선택한 기간에 해커가 주로 사용한 침투 전술과 세부 기술을 그룹별로 묶어 타일 형태로 보여준다.
+        - LLM 비용 및 대기 시간 영수증 (Cost Telemetry) (30D)
+            - 모델별 구동 횟수, 질문 횟수, 사용 토큰 수, 소요된 달러 비용과 평균 응답 지연 시간을 표와 파란색 비율 그래프로 보여준다.
+        ![alt text](image-2.png)
+
+# SOC Insights
+
+- 총 7개의 요약 카드(타일)를 배치하고, 사건(Case)이 일어나거나 데이터가 바뀔 때마다 실시간으로 화면을 즉시 갱신하는 실시간 관제판
+1. MTTA (Mean Time to Acknowledge / 평균 접수 시간)
+2. MTTR (Mean Time to Respond / 평균 대응 시간)
+3. FP Rate (False Positive Rate / 오탐률)
+4. Alerts/DAY(선택한 기간(24h, 7d, 30d) 동안의 하루 평균 경보 수)
+5. Cases/DAY (하루 평균 사고 케이스 수)
+6. Agent Cost per Investigation (AI 조사 1회당 평균 비용)
+7. Analyst Hours Saved (절약된 분석 시간)
+![alt text](image-6.png)
+
+# Threat Operations
+## Alerts
+- 경보 관제소(Alerts & Triage Center)
+### Entities vs Alerts
+#### Entities
+- 경보를 유발한 대상(사용자 ID, 노트북 IP 등)을 기준으로 묶어서 보여준다.
+- 요약된 정보를 눌러서 자세하게 확인할 수 있다.
+#### Alerts
+- 특정 원본 알람 하나하나를 나열해서 볼 수 있는 경보 목록판
+- 왼쪽은 경보 목록판, 오른쪽은 상세 분석 레일이다.
+
+![왼쪽](image-7.png)
+----
+![오른쪽](image-8.png)
+
+## Investigation Queue
+- 수사 대기열 작업대
+- Mine (내 작업): 현재 나에게 배정되어 내가 수사 중인 경보들.
+- Unassigned (미배정): 아무도 손대지 않아서 먼저 줍는 사람이 임자인 공용 경보들.
+- All (전체): 전체 흐름을 모니터링하기 위해 내 일과 미배정 일을 모아 보는 뷰.
+
+## Cases
+- 사건/사고 관리소(Cases Workspace)
+
+## Hunt
+- 자연어로 질문하면 보안 쿼리로 번역해서 (ES|QL, KQL, and SPL) 실제 로그를 사냥(검색)해 주는 위협 탐색창이다.
+1. 영어 검색창 -> translate & run
+2. 결과표(AI가 생성한 쿼리)
+
+## Detection Rules
+- 탐지 규칙을 만들고 켜고 끄고 coverage확인하는 창
+1. Rules (규칙 목록): 현재 가동 중인 탐지 규칙들을 한눈에 보고 검색하며, 규칙을 켜고 끄는 메인 작업대.
+2. Coverage (방어 영역): 규칙들이 해커의 어떤 공격 단계(MITRE ATT&CK)를 방어하고 있는지 보여주는 화면.
+3. Confidence (신뢰도): 신뢰성 통계를 보여준다.
+4. Drift (오작동 감시): 너무 자주 울려서 피로감을 주는 규칙(Noisy FP), 혹은 규칙은 켜져 있는데 오랫동안 한 번도 안 울려서 고장 난 것 같은 규칙(Stale)을 따로 골라내어 보여주는 정비창.
+
+## Detection Catalog
+- 전 세계 보안 전문가들이 만들어 올린 오픈소스 Sigma 탐지 규칙들을 구경하고 바로 다운로드(설치)할 수 있는 마켓플레이스
+
+## MITRE Coverage
+- 각 공격을 active한 룰 몇개가 커버하고 있는지 볼 수 있는 창
+- MITRE 테크닉을 누르면 해당 테크닉을 설명한 MITRE 페이지가 나온다.
+
+## Detection Tuning
+- 실제 가동 중인 알람들의 오탐률, 작동 횟수, 신뢰도 데이터를 인공지능이 분석하여 **해결책** 을 제안하는 곳
+
+## Shifts
+1. 현재 보초 상태판 (Active Shift)
+    - 현재 누가 근무 중이고, 이 근무가 몇 시에 시작해서 언제 끝나는지, 그리고 다음 조가 교대하러 올 때까지 남은 시간을 실시간으로 안내한다.
+2. 근무 성적표 (Shift Summary)
+    - 실적 요약
+    1. Alerts Triaged: 분석 및 처리 완료한 가벼운 신호 수.
+    2. Cases Opened: 진짜 위험해서 정밀 수사 단계로 넘긴 심각한 사고 수.
+    3. Escalations: 상급 부서로 보낸 건수.
+    4. Auto-Resolved: AI 비서 요원이 사람 대신 알아서 해결한 건수.
+3. 인수인계 체크리스트 (Open Handoff Items)
+    - 미처 끝내지 못해 다음 팀원이 이어서 수사해야 하는 사건 목록
+- 인수인계 보고서 생성(Generate Handoff Report)
+
+# Intelligence
+## Threat Intel
+- 전 세계 보안 기구와 공유 피드에서 수집한 인터넷 블랙리스트(침해지표, IOC)등을 모아둔 곳
+- Total IOCs (전체 블랙리스트 수), Malicious (진짜 악성으로 판정된 수), High Confidence (AI와 분석가가 80% 이상 확신하는 고위험 지표 수) 를 상단에 카드 형태로 보여준다.
+- 수상한 IP나 도메인을 검색(Lookup)하면 안전한지 위험한지 보여준다.
+- 실시간 위협 수집 목록
+    - 실시간으로 업데이트되는 블랙리스트 목록
+    - IP/Domain/Hash/URL 등의 타입 태그가 붙어있다.
+    - 이 정보를 제공한 검증 기관(VirusTotal, GreyNoise, AbuseIPDB 등)의 로고 태그가 표시된다.
+
+## Attack Graph
+- 공격 경로 추적 그래프 및 실시간 경보 히트맵
+1. 침투 동선 입체 지도 (Attack Graph)
+2. 경보가 울린 빈도(Alerts Fired)를 실시간으로 측정한다.
+
+## AI Copilot
+- 인공지능 비서
+1. 분석가들이 자주 묻는 추천 질문 템플릿 카드들과 이전 대화 기록 목록을 보여준다.
+2. AI 채팅창
+
+## Investigation Chat
+- AI가 summary 만들 수 있게 도와주는 곳
+- 확인 안됨 -> 누르면 Hunt로 넘어감.
+
+## Coverage Advisor
+- 방어망이 탄탄한지 부족한지 알려주는 곳
+- Generate Detection을 사용하면 AI 가 취약 구역을 막아줄 설계도의 초안을 생성해준다.
+
+## EASM
+- 외부 공격 표면 관리 (EASM - External Attack Surface Management)
+1. 외부 위협 요약판 (Summary Cards)
+    1. Total Assets (총 외부 자산): 인터넷에 노출된 우리 회사 주소/장비 수.
+    2. Exposed Services (위험 노출 서비스): 외부에서 접속 가능한 장비 중 취약점이 있거나 주의가 필요한 수량.
+    3. Certificate Issues (인증서 문제): 자물쇠가 만료되었거나 곧 만료될 위기인 도메인 수.
+    4. Risk Score (공격 위험도 점수): 우리 성의 종합 외부 보안 점수. 점수가 높을수록 해커가 뚫기 쉬운 틈이 많다는 뜻.
+2. 외부 자산 탐색기 (Asset Discovery Table)
+    - 인터넷 공간에 널려 있는 우리 회사 소유의 도메인, IP주소, 서브 도메인들을 찾아내어 리스트로 보여준다.
+3. 자물쇠(SSL 인증서) 건강 감시기 (Certificate Monitor)
+    - HTTPS 인증서가 만료되지 않고 유효한지 감시하는 전용 감시판이다.
+    - 자물쇠를 발급해 준 기관, 만료일, 만료까지 남은 일수를 알려준다.
+
+# Automation
+## Playbooks
+- 자동 방어 매크로
+    1. Playbooks (무기 창고): 내가 보유한 플레이북 목록을 보고 검색하는 메인 작업대.
+    2. Run History (전투 기록): 이 플레이북들이 실제로 실행되었던 과거 기록 및 현재 실시간으로 몇 단계 스텝을 밟고 있는지 보여주는 로그판이다.
+    3. Community (오픈소스 무기 상점): 전 세계 경비 대원들이 만든 자동 방어 룰을 구경하고 내 성벽에 가져다 심거나, 내가 만든 룰을 상점에 등록하는 공유 마켓.
+- Draft from prompt
+    - 자연어로 입력하면 플레이북을 AI가 대신 생성해준다.
+- New Playbook
+    - 직접 처음부터 만들 수 있다.
+- on off가 가능하고 playbook을 켜면 run, preview, edit이 가능하다. 끄면 이 세가지 버튼은 클릭이 불가하다.
+
+## Marketplace
+- 탐지 규칙(Detections), 자동화 로봇(Playbooks), 시스템 확장 도구(Plugins)를 제공하는 마켓플레이스
+
+## File Integrity (FIM)
+- 파일 감시 상황판
+- *확인안됨* 누르면 뜨지는 않고 계속 오류가 뜬다.
+
+## Honeytokens
+- 해커를 유인하기 위해 일부러 가짜 AWS 키, 가짜 비밀번호 파일, 가짜 데이터베이스 주소를 미끼(HoneyToken)로 사용하여 해커를 검거하는 시스템을 관리하는 화면
+- New Token으로 새로운 토큰 생성가능
+
+## Purple Team
+- Coverage
+    - purple team이 실제로 탐지에 성공한 비율을 보여준다.
+- Executions
+    - 가상 도둑(Caldera, Atomic Red Team 등)들이 지금 어떤 공격 도구로, 어느 서버의 어느 구역을 타격하고 있는지 실시간으로 올라오는 훈련 기록 일지.
+- Tabletop
+    - 만나서 토론할 때 사용하는 게시판
+    - 토론 중에 발견된 취약점이나 조치 사항(Findings)과 위험도(Severity), 담당자(Owner)를 기록해 두고 관리 하는 화면
+
+# Platform
+## Get started
+- AiSOC security tool 안내
+- 연결할 수 있는 도구, 연결된 도구 등
+
+## Connectors
+- 도구를 연결하고 관리하는 화면
+
+## Roles & Permissions
+- 새로운 규칙 생성시 Name Description Permission을 적을 수 있는데, 이 규칙으로 권한을 특정 사람에게 줄 수 있다. -> 하지만 팀을 따로 생성하는 UI는 없는 것으로 보인다.
+
+## Compliance
+- 국가 보안 표준(SOC2, ISO 27001, HIPAA 등)을 잘 지키고 있는지 확인하는 곳
+- view dashboard로 자세히 보기가 가능하도록 설계된 것 같으나 확인은 안됨.
+
+## MSSP Dashboard
+- MSSP(Managed Security Service Provider)
+- 고객사 보안 상태 종합 상황판
+
+## Team Analytics
+- 팀원들의 성과를 가지고 leaderboard나 highlights를 보여줌
+
+## SLA Tracking
+- 데드라인 위반 상황판
+- 데드라인 설정 가능
+
+## Executive Digest
+- 보안 요약 성적표(기간 드롭다운으로 정할 수 있음)
+- print/save as pdf
+
+## Cost Dashboard
+- AI 비용 대시보드
+- 얼마나 사용했는지, 평균값, LLM을 가장 많이 사용한 case등을 보여준다.
+- BYOK를 사용하고 있다면 이걸로 인해 얼마를 절약했는지 보여준다.
+
+## Audit Log
+- 실시간 정밀 기록 (Audit Event Table) 확인
+- CSV / PDF Export
+
+## Settings
+- 설정 화면
+1. Profile
+    - 프로필 설정
+2. Workspace
+    - 현재 워크스페이스 설정
+    - 팀 구성, 이름 등(*현재 UI에서 설정 불가함*)
+3. Integrations
+    - connectors설정
+4. Autonomy guardrails
+    - AiSOC 플랫폼의 자율화 제어 장치
+5. API keys
+    - AiSOC api key 생성과 설정
+6. Notifications
+    - 알림 설정
+7. Appearance
+    - 화면 설정
+8. Deployment & AI
+    - Air-gap policy 설정
+    - LLM provider (어디서 사용되고 있는지 확인 가능)
+    - Bring-your-own-LLM (BYOK) 직접 LLM 가져올 수 있다.
+9. Audit log
+    - 로그 감시
+10. About AiSOC
+    - AiSOC 설명
