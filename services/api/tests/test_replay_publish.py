@@ -97,12 +97,15 @@ def test_snapshot_shape_and_counts() -> None:
 
 
 def test_routes_registered() -> None:
+    # Assert against the fully-assembled FastAPI app (its routes carry the
+    # resolved `/api/v1/...` paths), not the pre-mount APIRouter — the latter's
+    # stored paths depend on include-order/prefix internals.
     try:
-        from app.api.v1.router import api_router
+        from app.main import app
     except ModuleNotFoundError as exc:  # pragma: no cover - local envs missing runtime deps
         pytest.skip(f"API runtime dependency unavailable in this environment: {exc.name}")
 
-    paths = {getattr(r, "path", "") for r in api_router.routes}
+    paths = {getattr(r, "path", "") for r in app.routes}
     assert "/api/v1/ledger/{run_id}/publish" in paths
     assert "/api/v1/ledger/{run_id}/publish/preview" in paths
     assert "/api/v1/r/{slug}" in paths
