@@ -23,6 +23,7 @@ const KIND_COLOR: Record<string, string> = {
   report: "#e6e9f5",
   reporter: "#e6e9f5",
   decision_reason: "#94a3b8",
+  debate: "#8b5cf6",
 };
 
 function verdictTone(verdict: string): { label: string; color: string } {

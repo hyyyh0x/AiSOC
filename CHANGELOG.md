@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **v8 P3 — Investigation Swarm (parallel hypothesis agents).** New
+  `services/agents/app/swarm/`: for hard cases, fan out 3–5 competing hypothesis
+  agents in parallel, then run a structured debate node that ranks them.
+  **Complexity gate** (`complexity.py`) fires the swarm only above an
+  entity/technique-spread threshold (defaults ≥3/≥3); simple alerts stay on the
+  cheaper single-agent path. **Hypotheses** (`hypotheses.py`) — ransomware
+  staging, insider exfil, lateral movement, C2 beacon, and a benign
+  backup/maintenance FP — each with supporting/contradicting signal +
+  corroborating techniques. **Swarm** (`swarm.py`) runs the agents concurrently
+  (`asyncio.gather`) each under a per-agent token budget, so total spend is
+  bounded. **Debate** (`debate.py`) scores hypotheses on explicit criteria
+  (evidence coverage, contradiction count, institutional-memory prior) and emits
+  a ranked list with margin-based confidence, recorded as a first-class new
+  `debate` ledger step type (the public replay UI colors + renders it). **Eval
+  gate** `tests/test_swarm_vs_single.py` publishes both numbers and asserts the
+  swarm beats single-agent on the investigation-completeness macro by ≥10% under
+  a cost ceiling (measured lift +0.556 on the synthetic set) — added to the
+  agents CI job. Completeness is a **substrate self-consistency** macro (breadth
+  of hypotheses considered), explicitly not a live-LLM accuracy claim; the
+  incident set is labelled synthetic. Docs:
+  `apps/docs/docs/concepts/investigation-swarm.md`. 9 tests.
 - **v8 P2 — Self-Play Purple Team (the SOC that attacks itself).** New
   `services/purple-team/app/adversary/`: turns the purple-team service from a
   test runner into a continuous adversary. **Hard scope guard**

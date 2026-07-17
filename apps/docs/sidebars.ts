@@ -26,6 +26,7 @@ const sidebars: SidebarsConfig = {
         "concepts/live-actions",
         "concepts/automation-maturity",
         "concepts/self-play",
+        "concepts/investigation-swarm",
         "concepts/model-router",
         "concepts/llmops",
       ],

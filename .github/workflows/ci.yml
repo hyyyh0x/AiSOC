@@ -334,6 +334,8 @@ jobs:
             tests/test_llm_ops.py \
             tests/test_fused_alert_worker.py \
             tests/test_business_context_hotpath.py \
+            tests/test_swarm.py \
+            tests/test_swarm_vs_single.py \
             -v --tb=short
       - name: Gate the public benchmark scoreboard (Phase E1)
         # Ties apps/docs/static/data/scoreboard.json to a real deterministic
