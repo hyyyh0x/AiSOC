@@ -7,6 +7,186 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **v8 P4 — Compounding Memory (verdicts that measurably improve).** New
+  `services/fusion/app/memory/`: a nightly-distillable institutional memory that
+  makes verdicts more accurate the longer an instance runs. **Distillation**
+  (`distill.py`) compresses analyst overrides + verdict history into two
+  versioned (content-hashed), ledger-referenceable outputs — per-signature
+  priors (FP rate + prior) and a top-N few-shot exemplar bank per category.
+  **Memory verdict stage** (`stage.py`) turns a signature's prior into a
+  **bounded** verdict delta capped at ±0.10 (nudge, never dominate; cap +
+  direction unit-tested). **Improvement telemetry** (`improvement.py`) computes
+  verdict precision over time + the lift from install to latest ("N% more
+  accurate than at install") — measured 0.60→0.90 on a simulated (clearly
+  labelled synthetic) 90-day override history. **Portable signed memory packs**
+  (`pack.py`) — `aisoc memory export` (`pnpm aisoc:memory:export -- --demo`)
+  distills + **Ed25519-signs** a pack so an MSSP can bootstrap a child tenant
+  from a curated baseline; import verifies the signature and rejects a tampered
+  pack + can pin the publisher key (round-trip + tamper-rejection tests). The
+  `aisoc-memory-pack` format is the marketplace memory-pack artifact type. 9
+  tests (auto-run in the fusion CI job); docs
+  `apps/docs/docs/concepts/compounding-memory.md`. (Nightly distill scheduling,
+  the dashboard improvement chart, and live-path consumption of the memory stage
+  are the documented remaining integration steps.)
+- **v8 P3 — Investigation Swarm (parallel hypothesis agents).** New
+  `services/agents/app/swarm/`: for hard cases, fan out 3–5 competing hypothesis
+  agents in parallel, then run a structured debate node that ranks them.
+  **Complexity gate** (`complexity.py`) fires the swarm only above an
+  entity/technique-spread threshold (defaults ≥3/≥3); simple alerts stay on the
+  cheaper single-agent path. **Hypotheses** (`hypotheses.py`) — ransomware
+  staging, insider exfil, lateral movement, C2 beacon, and a benign
+  backup/maintenance FP — each with supporting/contradicting signal +
+  corroborating techniques. **Swarm** (`swarm.py`) runs the agents concurrently
+  (`asyncio.gather`) each under a per-agent token budget, so total spend is
+  bounded. **Debate** (`debate.py`) scores hypotheses on explicit criteria
+  (evidence coverage, contradiction count, institutional-memory prior) and emits
+  a ranked list with margin-based confidence, recorded as a first-class new
+  `debate` ledger step type (the public replay UI colors + renders it). **Eval
+  gate** `tests/test_swarm_vs_single.py` publishes both numbers and asserts the
+  swarm beats single-agent on the investigation-completeness macro by ≥10% under
+  a cost ceiling (measured lift +0.556 on the synthetic set) — added to the
+  agents CI job. Completeness is a **substrate self-consistency** macro (breadth
+  of hypotheses considered), explicitly not a live-LLM accuracy claim; the
+  incident set is labelled synthetic. Docs:
+  `apps/docs/docs/concepts/investigation-swarm.md`. 9 tests.
+- **v8 P2 — Self-Play Purple Team (the SOC that attacks itself).** New
+  `services/purple-team/app/adversary/`: turns the purple-team service from a
+  test runner into a continuous adversary. **Hard scope guard**
+  (`scope_guard.py`) — a SOC that attacks itself must never touch production, so
+  this is enforced in **code** (raises `ScopeViolation` before any step) not as
+  a prompt: every target must carry an allowlisted lab tag AND no forbidden
+  production tag; no force flag. Adversarial tests cover production assets,
+  untagged assets, empty target sets, and a `lab`+`crown-jewel` laundering
+  attempt (all hard-fail). **Planner** (`planner.py`) composes an ordered
+  kill-chain (initial-access → execution → persistence → privesc → exfil),
+  selecting only techniques whose platform exists among the lab targets ("attack
+  what exists"). **Closed loop** (`campaign.py`) emits telemetry per step
+  (pluggable: in-memory for tests/canned, Kafka on the live path), a detection
+  oracle scores detected/missed, and computes detection rate + mean-time-to-
+  verdict. **DAC auto-file** (`dac.py`) files one eval-gated Sigma-scaffold
+  proposal per miss (status `proposed`, low confidence — self-play can only
+  propose, never silently merge). **Scoreboard** (`scoreboard.py` +
+  `apps/docs/static/data/selfplay-scoreboard.json`) with a per-row `synthetic`
+  flag so a canned campaign is never mistaken for a measured live run. Canned
+  5-stage campaign via `pnpm aisoc:selfplay` (offline, deterministic, ~seconds)
+  runs in CI through `test_canned_campaign_runs_end_to_end`. 14 tests total; docs
+  at `apps/docs/docs/concepts/self-play.md`. (Nightly live wiring — Kafka emitter
+  + alert-store oracle + HTTP DAC filer into the scheduler — is the documented
+  remaining integration step.)
+- **v8 P1 — Federated Threat Intel Mesh (the network effect).** New
+  `services/mesh/` (Python/FastAPI, port 8010): opt-in gossip of two
+  privacy-preserving artifact types between self-hosted instances via a
+  lightweight, open-source hub. (1) **IOC sightings** — `SHA-256` of the
+  normalized indicator (never the raw value) + coarse type + severity +
+  first/last-seen; private-set-intersection style, so a peer learns a value only
+  if it already has it. (2) **Verdict signatures** — the institutional-memory
+  signature key (category + connector + technique) + verdict distribution + mean
+  confidence; no entities, tenant data, or free text. **Privacy gates:**
+  k-anonymity (consensus revealed only at `>= k` distinct instances, default 5,
+  `AISOC_MESH_K`), per-instance **Ed25519** signing (verified hub-side, so one
+  actor can't inflate consensus with sock-puppets — tested), tenant/rule-level
+  opt-out, a per-instance outbound-audit receipts log, and a `mesh_preview` that
+  shows the exact outbound payload before sharing is enabled. **Consumption:** a
+  deterministic `consensus.py:mesh_contribution` verdict stage bounded to
+  **±0.10** (the mesh nudges, never dominates; cap unit-tested). Public network
+  stats page at `/mesh` (fetches the hub's `/v1/stats`, graceful when the hub is
+  offline). 11 tests cover the full privacy contract (k-anonymity threshold,
+  sock-puppet resistance, Ed25519 verify, PSI hashing, opt-out, bounded
+  contribution, preview redaction, two-instance exchange, per-instance audit);
+  added to the wave-2 service CI matrix. Threat model:
+  `docs/architecture/mesh.md`; `SECURITY.md` gains a mesh disclosure policy. The
+  measured FP-suppression lift (mesh on vs. off) is explicitly deferred and
+  labelled **simulated-until-measured** on the benchmark/`/mesh` pages — never
+  presented as measured production performance.
+- **v8 G1 — launch kit (ships in-repo with the code).** New `marketing/launch/`:
+  a Show HN draft centered on `npx aisoc triage --demo`, a 90-second demo-video
+  shot list (CLI wow → replay permalink → self-play → mesh stats), Product Hunt
+  assets, six technical blog outlines (one per phase, each ending in a
+  reproducible command), and a **category-level** comparison dossier vs.
+  closed-source AI SOC products — deliberately **without naming any competitor**
+  (per project policy), with every AiSOC-side claim linked to code or a CI gate.
+  Plus a `docs/press/` kit (boilerplate, fast facts, logo kit, naming). All
+  materials are written to two rules — no superlatives, and synthetic-vs-measured
+  always labelled — and are linked from `CONTRIBUTING.md` for community
+  amplification. The launch-kit README points every claim back to the benchmark
+  page + claim-to-gate matrix so nothing ungated gets published.
+- **v8 W4 — GitHub-native distribution (`aisoc-action`).** New
+  `packages/aisoc-action/` (Node20 JS action, **dependency-free** — a
+  hand-rolled Actions runtime + a `fetch`-based GitHub REST client, deliberately
+  no `@actions/*`/octokit so the shipped bundle carries no vulnerable `undici`;
+  the committed bundle is 18 KB): triages the repo's **own**
+  security signals — Dependabot alerts, CodeQL/code-scanning findings, and
+  secret-scanning alerts — with the deterministic AiSOC verdict engine (no LLM,
+  nothing leaves the runner) and posts verdicts + suppression rationale +
+  prioritization as a PR comment (idempotent update-in-place), a job summary, or
+  a weekly `aisoc-digest` posture issue with an A–F grade and week-over-week
+  delta. Runtime-scope Dependabot vulns are prioritized as
+  exploitable-in-your-dependency-graph ("3 of 41 findings are act-now"); sources
+  the token can't read degrade gracefully. Inputs: `mode`, `min-severity`,
+  `fail-on` (gate mode), `sources`. The verdict engine is a byte-for-byte
+  vendored copy of `packages/aisoc-lite/src/verdict/` kept in sync by
+  `scripts/sync_vendored_verdict.py` (CI `--check` gate), bundled into a
+  committed `dist/index.js`. Dogfooded on this repo via
+  `.github/workflows/aisoc-selfscan.yml`. CI (`aisoc-action.yml`): sync-check +
+  typecheck + 6 fixture tests + a dist-freshness gate (committed bundle must
+  match a fresh build). Docs: `apps/docs/docs/integrations/github-action.md`
+  with copy-paste PR + digest workflows. **Fixes a latent workspace defect:** the
+  monorepo root package was also named `aisoc` (colliding with the CLI package),
+  so it was renamed to `aisoc-monorepo` (installer repo-detection sentinels now
+  prefix-match, staying compatible with existing clones).
+- **v8 W2 — standalone free web tools (search-indexed acquisition).** Four
+  login-free, open-source tools under `apps/web/src/app/(tools)/tools/`, each
+  with its own landing page, JSON-LD, OG metadata, and an "open source, part of
+  AiSOC" backlink; **everything runs in the browser — user rules never touch the
+  server** (the deterministic path is pure client-side). (1) **Detection
+  Translator** (`/tools/translate`): paste any rule, get Sigma / SPL / KQL /
+  ES\|QL / YARA-L2 / UDM at once, with per-dialect copy buttons and a stable
+  `?s=` permalink. (2) **NL → Detection** (`/tools/nl2sigma`): plain English →
+  a Sigma scaffold plus the three SIEM dialects, via a deterministic
+  artifact-extraction generator (honest about being a starting point). (3)
+  **ATT&CK Coverage Grader** (`/tools/coverage`): paste Sigma rules / technique
+  IDs → an A–F grade, a per-tactic heatmap, the top-10 highest-prevalence
+  uncovered techniques, and a downloadable shareable grade card (via
+  `@aisoc/report-card`). (4) **Alert Noise Calculator** (`/tools/noise`):
+  project FP suppression + analyst hours/cost saved from the published
+  deterministic-tier suppression rate (methodology linked; labelled as a
+  substrate figure, not a live-LLM claim). SEO plumbing: 30 programmatic
+  format-pair landing pages (`/tools/translate/spl-to-kql`, …) generated from a
+  matrix via `generateStaticParams`, plus sitemap entries for all tool routes.
+  Logic (`apps/web/src/lib/tools/`) is pure and unit-tested (13 tests: translate
+  field-map + permalink round-trip, coverage extraction/grading/top-uncovered,
+  noise projection/clamping, NL→Sigma scaffolding). Production build verified
+  (tools static, pair pages SSG'd).
+- **v8 W3 — shareable investigation artifacts (the screenshot loop).** Public,
+  immutable, redacted investigation-replay permalinks. New
+  `services/api/app/api/v1/endpoints/replay.py`: `POST /ledger/{run_id}/publish/preview`
+  builds a redacted snapshot **and returns the alias map** so the publisher
+  reviews exactly what will be hidden (the pre-publish diff) before confirming;
+  `POST /ledger/{run_id}/publish` (needs `confirm=true`) re-builds server-side
+  and stores an immutable `published_replays` row (migration `045`, with an
+  UPDATE-blocking trigger that only allows the view counter to change); public
+  `GET /r/{slug}` serves the snapshot without auth from a non-RLS session
+  (the data is post-redaction and non-identifying by design). Redaction reuses
+  the reversible `Pseudonymizer` (vendored into the API via
+  `scripts/sync_vendored_redactor.py`): internal IPs / emails / paths / secrets
+  / internal hostnames / usernames become aliases, while public IOCs + ATT&CK
+  techniques are preserved as the shareable value; only the redacted snapshot is
+  persisted, never the alias map (`services/api/app/services/replay_redaction.py`).
+  Web: a public `/r/[slug]` page renders an animated playback (timeline scrubber,
+  evidence cards, growing attack graph, verdict stamp with elapsed time) with a
+  dynamic `next/og` Open Graph image for X/LinkedIn/Slack unfurls;
+  shields.io-compatible badge endpoints at `/api/badge/<kind>`. New shared
+  `packages/@aisoc/report-card` renders triage / coverage-grade / replay share
+  cards (SVG + Markdown) and is now the canonical renderer behind the CLI
+  `--share` flag (bundled into `aisoc` at build time). The seeded LockBit case
+  `INC-RT-001` is published as the canonical demo replay at `/r/demo-lockbit`.
+  Tests: redaction (no raw PII survives, public IOCs preserved), report-card
+  renderers, badge endpoint, and the replay fetch client. `docs/openapi.yaml`
+  regenerated (+284 lines, additions only).
+- **v8 W1 — `npx aisoc` wedge CLI (the 60-second wow).** New `packages/aisoc-lite/` (TypeScript, published to npm as `aisoc`, one runtime dependency): a zero-install front door that triages a batch of alerts to verdicts in under a minute with **no credentials and no LLM key**. `npx aisoc triage --demo` runs a bundled, fully-deterministic 200-alert fixture in ~50 ms and prints a terminal verdict table plus the copy-pasteable headline "AiSOC triaged 200 alerts: 12 TP, 171 FP suppressed (85.5% noise), 17 need review". The verdict engine (`src/verdict/stages.ts`) is a faithful port of the production triage scorer `services/agents/app/confidence/scoring.py` — the weight stack and band thresholds (≥.80 TP, ≥.60 likely-TP, ≥.40 review, else benign; clamp [0.05, 0.95]) are pinned by a parity test so a CLI verdict lands where the full stack would. `--file alerts.jsonl` triages a local export (Splunk / Sentinel / Elastic ECS / CrowdStrike field spellings auto-detected); `--llm` refines only the ambiguous `needs_review` middle using the user's **own** `ANTHROPIC_API_KEY`/`OPENAI_API_KEY` called directly (never proxied); `--share` writes a redacted, aggregate-only report card (Markdown + 1200×630 SVG, no alert content); `translate` is a CLI front for the deterministic detection-rule field-map translator (Sigma/SPL/KQL/ES\|QL/YARA-L2/UDM); `up` boots the full demo stack from a pinned Compose bundle. Telemetry is strictly opt-in (`--telemetry` / `AISOC_TELEMETRY=1`, default off), aggregate counts only, documented in `packages/aisoc-lite/TELEMETRY.md` and asserted content-free by a unit test. 22 vitest tests. New CI: `aisoc-cli.yml` (build + typecheck + tests + a cross-platform cold `triage --demo` e2e asserting the headline and a <60 s bound + a fixture-staleness diff gate) and `publish-cli.yml` (npm publish with build provenance on a `cli-v*` tag; no-ops safely until `NPM_TOKEN` is configured — we never fake a publish). README top fold rewritten around the one-liner (guarded "lands on npm with the v8.0 launch; today it builds from `packages/aisoc-lite/`").
+
 ## [7.6.0] — 2026-07-13
 
 **Fully-Operational AI-SOC release.** Completes the A1–E1 roadmap that wired the three end-to-end paths the reality audit found unwired — the event lake is now populated, the executable detection corpus fires on the live stream, every fused alert is auto-triaged (copilot default), and approved SOAR actions execute against real connector credentials under an autonomy policy — and adds the competitive-parity differentiators (unified Data Explorer, live effective-permissions, fuse-time attack chains, autopilot/copilot scorecard) plus nine new connectors and AI/LLM-usage governance. The claim-to-gate matrix reaches **33 GATED / 7 PARTIAL / 0 NO GATE**: every product claim is backed by a failing test, and the ratchet (`MAX_NO_GATE=0`) forbids regression.

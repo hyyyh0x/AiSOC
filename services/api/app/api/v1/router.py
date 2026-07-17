@@ -61,6 +61,7 @@ from app.api.v1.endpoints import (
     rbac,
     realtime,
     remediation,
+    replay,
     reports,
     rule_tuning,
     saved_hunts,
@@ -130,6 +131,14 @@ api_router.include_router(health.router)
 api_router.include_router(insights.router)
 api_router.include_router(sla.router)
 api_router.include_router(investigations.router)
+
+# Public investigation-replay publishing — v8 W3.
+# /ledger/{run_id}/publish[/preview] (auth) turns a tenant-private ledger into
+# an immutable, redacted snapshot; /r/{slug} serves it publicly (no auth,
+# non-RLS by design — the data is post-redaction and non-identifying) for the
+# tryaisoc.com/r/<slug> replay page. Only the redacted snapshot is stored.
+api_router.include_router(replay.router)
+api_router.include_router(replay.public_router)
 # Effective permissions resolver (T3.2 — v8.0 parallel team plan).
 # Resolves "what can principal X actually do?" across AWS / Azure / GCP /
 # Okta / Google Workspace and caches the result as :EFFECTIVE_PERMISSION

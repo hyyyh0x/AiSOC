@@ -25,6 +25,9 @@ const sidebars: SidebarsConfig = {
         "concepts/detections",
         "concepts/live-actions",
         "concepts/automation-maturity",
+        "concepts/self-play",
+        "concepts/investigation-swarm",
+        "concepts/compounding-memory",
         "concepts/model-router",
         "concepts/llmops",
       ],
@@ -46,6 +49,7 @@ const sidebars: SidebarsConfig = {
         "console/queue",
         "console/rule-tuning",
         "console/investigation-rail",
+        "console/public-replay",
       ],
     },
     {
@@ -148,7 +152,7 @@ const sidebars: SidebarsConfig = {
     {
       type: "category",
       label: "Integrations",
-      items: ["integrations/mcp", "integrations/misp-push"],
+      items: ["integrations/mcp", "integrations/misp-push", "integrations/github-action"],
     },
     {
       type: "category",
