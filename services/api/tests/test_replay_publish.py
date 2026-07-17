@@ -97,15 +97,16 @@ def test_snapshot_shape_and_counts() -> None:
 
 
 def test_routes_registered() -> None:
-    # Assert against the fully-assembled FastAPI app (its routes carry the
-    # resolved `/api/v1/...` paths), not the pre-mount APIRouter — the latter's
-    # stored paths depend on include-order/prefix internals.
+    # Assert directly on the replay router objects' path contract. This is
+    # deterministic and independent of the global app singleton (which other
+    # tests in the full suite mutate) and of include-order/prefix resolution.
     try:
-        from app.main import app
+        from app.api.v1.endpoints import replay
     except ModuleNotFoundError as exc:  # pragma: no cover - local envs missing runtime deps
         pytest.skip(f"API runtime dependency unavailable in this environment: {exc.name}")
 
-    paths = {getattr(r, "path", "") for r in app.routes}
-    assert "/api/v1/ledger/{run_id}/publish" in paths
-    assert "/api/v1/ledger/{run_id}/publish/preview" in paths
-    assert "/api/v1/r/{slug}" in paths
+    ledger_paths = {getattr(r, "path", "") for r in replay.router.routes}
+    public_paths = {getattr(r, "path", "") for r in replay.public_router.routes}
+    assert "/ledger/{run_id}/publish" in ledger_paths
+    assert "/ledger/{run_id}/publish/preview" in ledger_paths
+    assert "/r/{slug}" in public_paths
