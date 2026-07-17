@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **v8 P1 — Federated Threat Intel Mesh (the network effect).** New
+  `services/mesh/` (Python/FastAPI, port 8010): opt-in gossip of two
+  privacy-preserving artifact types between self-hosted instances via a
+  lightweight, open-source hub. (1) **IOC sightings** — `SHA-256` of the
+  normalized indicator (never the raw value) + coarse type + severity +
+  first/last-seen; private-set-intersection style, so a peer learns a value only
+  if it already has it. (2) **Verdict signatures** — the institutional-memory
+  signature key (category + connector + technique) + verdict distribution + mean
+  confidence; no entities, tenant data, or free text. **Privacy gates:**
+  k-anonymity (consensus revealed only at `>= k` distinct instances, default 5,
+  `AISOC_MESH_K`), per-instance **Ed25519** signing (verified hub-side, so one
+  actor can't inflate consensus with sock-puppets — tested), tenant/rule-level
+  opt-out, a per-instance outbound-audit receipts log, and a `mesh_preview` that
+  shows the exact outbound payload before sharing is enabled. **Consumption:** a
+  deterministic `consensus.py:mesh_contribution` verdict stage bounded to
+  **±0.10** (the mesh nudges, never dominates; cap unit-tested). Public network
+  stats page at `/mesh` (fetches the hub's `/v1/stats`, graceful when the hub is
+  offline). 11 tests cover the full privacy contract (k-anonymity threshold,
+  sock-puppet resistance, Ed25519 verify, PSI hashing, opt-out, bounded
+  contribution, preview redaction, two-instance exchange, per-instance audit);
+  added to the wave-2 service CI matrix. Threat model:
+  `docs/architecture/mesh.md`; `SECURITY.md` gains a mesh disclosure policy. The
+  measured FP-suppression lift (mesh on vs. off) is explicitly deferred and
+  labelled **simulated-until-measured** on the benchmark/`/mesh` pages — never
+  presented as measured production performance.
 - **v8 G1 — launch kit (ships in-repo with the code).** New `marketing/launch/`:
   a Show HN draft centered on `npx aisoc triage --demo`, a 90-second demo-video
   shot list (CLI wow → replay permalink → self-play → mesh stats), Product Hunt

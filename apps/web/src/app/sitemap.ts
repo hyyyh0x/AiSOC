@@ -15,6 +15,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     "/contact",
     "/purple-team",
     "/responder",
+    "/mesh",
     "/why-open-source",
     "/marketplace",
     "/compliance",
