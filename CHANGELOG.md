@@ -9,6 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **v8 P2 — Self-Play Purple Team (the SOC that attacks itself).** New
+  `services/purple-team/app/adversary/`: turns the purple-team service from a
+  test runner into a continuous adversary. **Hard scope guard**
+  (`scope_guard.py`) — a SOC that attacks itself must never touch production, so
+  this is enforced in **code** (raises `ScopeViolation` before any step) not as
+  a prompt: every target must carry an allowlisted lab tag AND no forbidden
+  production tag; no force flag. Adversarial tests cover production assets,
+  untagged assets, empty target sets, and a `lab`+`crown-jewel` laundering
+  attempt (all hard-fail). **Planner** (`planner.py`) composes an ordered
+  kill-chain (initial-access → execution → persistence → privesc → exfil),
+  selecting only techniques whose platform exists among the lab targets ("attack
+  what exists"). **Closed loop** (`campaign.py`) emits telemetry per step
+  (pluggable: in-memory for tests/canned, Kafka on the live path), a detection
+  oracle scores detected/missed, and computes detection rate + mean-time-to-
+  verdict. **DAC auto-file** (`dac.py`) files one eval-gated Sigma-scaffold
+  proposal per miss (status `proposed`, low confidence — self-play can only
+  propose, never silently merge). **Scoreboard** (`scoreboard.py` +
+  `apps/docs/static/data/selfplay-scoreboard.json`) with a per-row `synthetic`
+  flag so a canned campaign is never mistaken for a measured live run. Canned
+  5-stage campaign via `pnpm aisoc:selfplay` (offline, deterministic, ~seconds)
+  runs in CI through `test_canned_campaign_runs_end_to_end`. 14 tests total; docs
+  at `apps/docs/docs/concepts/self-play.md`. (Nightly live wiring — Kafka emitter
+  + alert-store oracle + HTTP DAC filer into the scheduler — is the documented
+  remaining integration step.)
 - **v8 P1 — Federated Threat Intel Mesh (the network effect).** New
   `services/mesh/` (Python/FastAPI, port 8010): opt-in gossip of two
   privacy-preserving artifact types between self-hosted instances via a
