@@ -35,7 +35,7 @@ describe("fetchPublicReplay", () => {
   });
 
   it("URL-encodes the slug", async () => {
-    const spy = vi.fn(async () => new Response("{}", { status: 200 }));
+    const spy = vi.fn(async (_url: string) => new Response("{}", { status: 200 }));
     vi.stubGlobal("fetch", spy);
     await fetchPublicReplay("a/b");
     expect(String(spy.mock.calls[0]?.[0])).toContain("a%2Fb");

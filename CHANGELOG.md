@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **v8 W2 — standalone free web tools (search-indexed acquisition).** Four
+  login-free, open-source tools under `apps/web/src/app/(tools)/tools/`, each
+  with its own landing page, JSON-LD, OG metadata, and an "open source, part of
+  AiSOC" backlink; **everything runs in the browser — user rules never touch the
+  server** (the deterministic path is pure client-side). (1) **Detection
+  Translator** (`/tools/translate`): paste any rule, get Sigma / SPL / KQL /
+  ES\|QL / YARA-L2 / UDM at once, with per-dialect copy buttons and a stable
+  `?s=` permalink. (2) **NL → Detection** (`/tools/nl2sigma`): plain English →
+  a Sigma scaffold plus the three SIEM dialects, via a deterministic
+  artifact-extraction generator (honest about being a starting point). (3)
+  **ATT&CK Coverage Grader** (`/tools/coverage`): paste Sigma rules / technique
+  IDs → an A–F grade, a per-tactic heatmap, the top-10 highest-prevalence
+  uncovered techniques, and a downloadable shareable grade card (via
+  `@aisoc/report-card`). (4) **Alert Noise Calculator** (`/tools/noise`):
+  project FP suppression + analyst hours/cost saved from the published
+  deterministic-tier suppression rate (methodology linked; labelled as a
+  substrate figure, not a live-LLM claim). SEO plumbing: 30 programmatic
+  format-pair landing pages (`/tools/translate/spl-to-kql`, …) generated from a
+  matrix via `generateStaticParams`, plus sitemap entries for all tool routes.
+  Logic (`apps/web/src/lib/tools/`) is pure and unit-tested (13 tests: translate
+  field-map + permalink round-trip, coverage extraction/grading/top-uncovered,
+  noise projection/clamping, NL→Sigma scaffolding). Production build verified
+  (tools static, pair pages SSG'd).
 - **v8 W3 — shareable investigation artifacts (the screenshot loop).** Public,
   immutable, redacted investigation-replay permalinks. New
   `services/api/app/api/v1/endpoints/replay.py`: `POST /ledger/{run_id}/publish/preview`
