@@ -24191,7 +24191,7 @@ async function fetchAlerts(octokit, owner, repo, sources) {
   return { alerts, notes };
 }
 
-// ../report-card/dist/index.js
+// ../report-card/src/index.ts
 function coverageGrade(percent) {
   if (percent >= 90) return "A";
   if (percent >= 75) return "B";

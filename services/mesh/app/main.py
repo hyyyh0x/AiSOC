@@ -13,11 +13,17 @@ import os
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
+from app._health import install_health_routes
 from app.artifacts import IocSighting, VerdictSignature
 from app.hub import DEFAULT_K, MeshHub
 
 app = FastAPI(title="AiSOC Mesh Hub", version="0.1.0")
 _hub = MeshHub(k=int(os.environ.get("AISOC_MESH_K", DEFAULT_K)))
+
+# Phase 2.6 liveness/readiness probes. The hub is in-memory with no external
+# dependencies, so it is ready as soon as the process is up.
+_mark_ready, _mark_not_ready = install_health_routes(app, service_name="aisoc-mesh")
+_mark_ready()
 
 
 @app.get("/health")
