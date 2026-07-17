@@ -27,6 +27,7 @@ const sidebars: SidebarsConfig = {
         "concepts/automation-maturity",
         "concepts/self-play",
         "concepts/investigation-swarm",
+        "concepts/compounding-memory",
         "concepts/model-router",
         "concepts/llmops",
       ],

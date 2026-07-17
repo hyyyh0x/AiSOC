@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **v8 P4 — Compounding Memory (verdicts that measurably improve).** New
+  `services/fusion/app/memory/`: a nightly-distillable institutional memory that
+  makes verdicts more accurate the longer an instance runs. **Distillation**
+  (`distill.py`) compresses analyst overrides + verdict history into two
+  versioned (content-hashed), ledger-referenceable outputs — per-signature
+  priors (FP rate + prior) and a top-N few-shot exemplar bank per category.
+  **Memory verdict stage** (`stage.py`) turns a signature's prior into a
+  **bounded** verdict delta capped at ±0.10 (nudge, never dominate; cap +
+  direction unit-tested). **Improvement telemetry** (`improvement.py`) computes
+  verdict precision over time + the lift from install to latest ("N% more
+  accurate than at install") — measured 0.60→0.90 on a simulated (clearly
+  labelled synthetic) 90-day override history. **Portable signed memory packs**
+  (`pack.py`) — `aisoc memory export` (`pnpm aisoc:memory:export -- --demo`)
+  distills + **Ed25519-signs** a pack so an MSSP can bootstrap a child tenant
+  from a curated baseline; import verifies the signature and rejects a tampered
+  pack + can pin the publisher key (round-trip + tamper-rejection tests). The
+  `aisoc-memory-pack` format is the marketplace memory-pack artifact type. 9
+  tests (auto-run in the fusion CI job); docs
+  `apps/docs/docs/concepts/compounding-memory.md`. (Nightly distill scheduling,
+  the dashboard improvement chart, and live-path consumption of the memory stage
+  are the documented remaining integration steps.)
 - **v8 P3 — Investigation Swarm (parallel hypothesis agents).** New
   `services/agents/app/swarm/`: for hard cases, fan out 3–5 competing hypothesis
   agents in parallel, then run a structured debate node that ranks them.

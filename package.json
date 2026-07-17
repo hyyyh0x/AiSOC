@@ -43,6 +43,7 @@
     "aisoc:acceptance:cold": "tsx scripts/aisoc-acceptance.ts --cold",
     "aisoc:selfplay": "cd services/purple-team && python3 -m app.adversary.canned",
     "aisoc:selfplay:json": "cd services/purple-team && python3 -m app.adversary.canned --json",
+    "aisoc:memory:export": "cd services/fusion && python3 -m app.memory.cli",
     "demo:public": "bash scripts/demo-public.sh",
     "demo:public:tunnel-only": "bash scripts/demo-public.sh --skip-stack",
     "demo:public:setup": "bash infra/cloudflare/tunnel.sh"
