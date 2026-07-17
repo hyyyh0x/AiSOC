@@ -204,6 +204,8 @@ Three contribution surfaces; each is one file plus optional fixtures, and CI val
 
 Plugin and detection SDK (Python · TypeScript · Go) — see [`apps/docs/docs/plugins/overview.md`](apps/docs/docs/plugins/overview.md). The CLI (`aisoc-cli`) is in [`packages/aisoc-cli/`](packages/aisoc-cli/); PyPI publish lands in v8.0.
 
+**In your CI:** add `- uses: beenuar/aisoc-action@v1` to triage your repo's Dependabot / CodeQL / secret-scanning alerts on every PR (deterministic, nothing leaves your runner; dogfooded on this repo, Marketplace publish lands with v8.0). [Docs](apps/docs/docs/integrations/github-action.md).
+
 ---
 
 ## Roadmap & releases

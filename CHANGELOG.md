@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **v8 W4 — GitHub-native distribution (`aisoc-action`).** New
+  `packages/aisoc-action/` (Node20 JS action): triages the repo's **own**
+  security signals — Dependabot alerts, CodeQL/code-scanning findings, and
+  secret-scanning alerts — with the deterministic AiSOC verdict engine (no LLM,
+  nothing leaves the runner) and posts verdicts + suppression rationale +
+  prioritization as a PR comment (idempotent update-in-place), a job summary, or
+  a weekly `aisoc-digest` posture issue with an A–F grade and week-over-week
+  delta. Runtime-scope Dependabot vulns are prioritized as
+  exploitable-in-your-dependency-graph ("3 of 41 findings are act-now"); sources
+  the token can't read degrade gracefully. Inputs: `mode`, `min-severity`,
+  `fail-on` (gate mode), `sources`. The verdict engine is a byte-for-byte
+  vendored copy of `packages/aisoc-lite/src/verdict/` kept in sync by
+  `scripts/sync_vendored_verdict.py` (CI `--check` gate), bundled into a
+  committed `dist/index.js`. Dogfooded on this repo via
+  `.github/workflows/aisoc-selfscan.yml`. CI (`aisoc-action.yml`): sync-check +
+  typecheck + 6 fixture tests + a dist-freshness gate (committed bundle must
+  match a fresh build). Docs: `apps/docs/docs/integrations/github-action.md`
+  with copy-paste PR + digest workflows. **Fixes a latent workspace defect:** the
+  monorepo root package was also named `aisoc` (colliding with the CLI package),
+  so it was renamed to `aisoc-monorepo` (installer repo-detection sentinels now
+  prefix-match, staying compatible with existing clones).
 - **v8 W2 — standalone free web tools (search-indexed acquisition).** Four
   login-free, open-source tools under `apps/web/src/app/(tools)/tools/`, each
   with its own landing page, JSON-LD, OG metadata, and an "open source, part of
