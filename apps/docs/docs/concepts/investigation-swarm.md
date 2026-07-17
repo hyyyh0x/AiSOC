@@ -33,7 +33,7 @@ the swarm's total spend is bounded and predictable.
 coverage**, **contradiction count**, and an **institutional-memory prior** (how
 this signature historically resolved) — and produces a ranked list with a
 margin-based confidence (clamped to [0.05, 0.95]). The debate is recorded in the
-ledger as a first-class `debate` step type; the [public replay](./investigation-rail.md)
+ledger as a first-class `debate` step type; the [public replay](../console/public-replay.md)
 UI renders it as a split-screen of competing hypotheses and their scores.
 
 ## The eval gate
