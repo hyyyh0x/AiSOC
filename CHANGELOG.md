@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **v8 G1 — launch kit (ships in-repo with the code).** New `marketing/launch/`:
+  a Show HN draft centered on `npx aisoc triage --demo`, a 90-second demo-video
+  shot list (CLI wow → replay permalink → self-play → mesh stats), Product Hunt
+  assets, six technical blog outlines (one per phase, each ending in a
+  reproducible command), and a **category-level** comparison dossier vs.
+  closed-source AI SOC products — deliberately **without naming any competitor**
+  (per project policy), with every AiSOC-side claim linked to code or a CI gate.
+  Plus a `docs/press/` kit (boilerplate, fast facts, logo kit, naming). All
+  materials are written to two rules — no superlatives, and synthetic-vs-measured
+  always labelled — and are linked from `CONTRIBUTING.md` for community
+  amplification. The launch-kit README points every claim back to the benchmark
+  page + claim-to-gate matrix so nothing ungated gets published.
 - **v8 W4 — GitHub-native distribution (`aisoc-action`).** New
   `packages/aisoc-action/` (Node20 JS action): triages the repo's **own**
   security signals — Dependabot alerts, CodeQL/code-scanning findings, and
