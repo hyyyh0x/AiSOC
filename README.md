@@ -31,7 +31,14 @@ An open-source, self-hostable AI SOC. The agent's prompts, tool calls, and ratio
 
 ## Try AiSOC in 60 seconds
 
-Four fastest paths to a working AiSOC investigation. Pick whichever matches what you already have on your machine:
+One command — no clone, no Docker, no keys (`npx aisoc` lands on npm with the v8.0 launch; today it builds from [`packages/aisoc-lite/`](packages/aisoc-lite/)):
+
+```bash
+npx aisoc triage --demo
+# ✓ AiSOC triaged 200 alerts: 12 TP, 171 FP suppressed (85.5% noise), 17 need review — in 0.1s
+```
+
+The wedge CLI scores a batch of alerts to verdicts (escalate / review / suppress) with a deterministic engine ported from the production triage scorer — zero LLM key required. Or pick whichever path matches what you already have on your machine:
 
 | If you have…                          | Run this                                                                                                 | What you get                                                                                       |
 |---------------------------------------|----------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------|
