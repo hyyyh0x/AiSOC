@@ -110,10 +110,7 @@ async def _load_run_and_events(
     events = list(
         (
             await db.execute(
-                select(InvestigationEvent)
-                .where(InvestigationEvent.run_id == run_id)
-                .order_by(InvestigationEvent.seq.asc())
-                .limit(10000)
+                select(InvestigationEvent).where(InvestigationEvent.run_id == run_id).order_by(InvestigationEvent.seq.asc()).limit(10000)
             )
         )
         .scalars()
@@ -277,9 +274,7 @@ async def get_public_replay(slug: str, db: DBSession) -> PublicReplay:
 
     # Best-effort view bump; never fail the read on a counter error.
     try:
-        await db.execute(
-            update(PublishedReplay).where(PublishedReplay.id == row.id).values(view_count=PublishedReplay.view_count + 1)
-        )
+        await db.execute(update(PublishedReplay).where(PublishedReplay.id == row.id).values(view_count=PublishedReplay.view_count + 1))
         await db.commit()
     except Exception:  # pragma: no cover - counter is best-effort only
         await db.rollback()

@@ -58,7 +58,7 @@ def _collect_techniques(raw_alert: dict | None, events: list[dict]) -> list[str]
     def add(values: Any) -> None:
         if isinstance(values, str):
             values = [values]
-        if isinstance(values, (list, tuple)):
+        if isinstance(values, list | tuple):
             for v in values:
                 tid = str(v).upper().strip()
                 if tid and tid.startswith("T") and tid not in seen:
