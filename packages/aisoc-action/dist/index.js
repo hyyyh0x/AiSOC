@@ -353,7 +353,7 @@ async function fetchAlerts(client, owner, repo, sources) {
   return { alerts, notes };
 }
 
-// ../report-card/src/index.ts
+// ../report-card/dist/index.js
 function coverageGrade(percent) {
   if (percent >= 90) return "A";
   if (percent >= 75) return "B";
