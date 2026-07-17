@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { ReactNode } from "react";
 
 /**
@@ -19,22 +20,22 @@ export default function ToolsLayout({ children }: { children: ReactNode }) {
           borderBottom: "1px solid #232b4d",
         }}
       >
-        <a href="/tools" style={{ color: "#e6e9f5", textDecoration: "none", fontWeight: 800, letterSpacing: 0.5 }}>
+        <Link href="/tools" style={{ color: "#e6e9f5", textDecoration: "none", fontWeight: 800, letterSpacing: 0.5 }}>
           AiSOC <span style={{ color: "#8b93b7", fontWeight: 500 }}>· free tools</span>
-        </a>
+        </Link>
         <nav style={{ display: "flex", gap: 18, fontSize: 14 }}>
-          <a href="/tools/translate" style={{ color: "#c4cae0", textDecoration: "none" }}>
+          <Link href="/tools/translate" style={{ color: "#c4cae0", textDecoration: "none" }}>
             Translate
-          </a>
-          <a href="/tools/nl2sigma" style={{ color: "#c4cae0", textDecoration: "none" }}>
+          </Link>
+          <Link href="/tools/nl2sigma" style={{ color: "#c4cae0", textDecoration: "none" }}>
             NL→Sigma
-          </a>
-          <a href="/tools/coverage" style={{ color: "#c4cae0", textDecoration: "none" }}>
+          </Link>
+          <Link href="/tools/coverage" style={{ color: "#c4cae0", textDecoration: "none" }}>
             Coverage
-          </a>
-          <a href="/tools/noise" style={{ color: "#c4cae0", textDecoration: "none" }}>
+          </Link>
+          <Link href="/tools/noise" style={{ color: "#c4cae0", textDecoration: "none" }}>
             Noise
-          </a>
+          </Link>
           <a href="https://github.com/beenuar/AiSOC" style={{ color: "#7b2bbe", textDecoration: "none", fontWeight: 700 }}>
             GitHub ★
           </a>

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 
 import { getPublicSiteUrl } from "../../../lib/site";
 
@@ -45,7 +46,7 @@ export default function ToolsIndex() {
       </p>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16, marginTop: 32 }}>
         {TOOLS.map((t) => (
-          <a
+          <Link
             key={t.href}
             href={t.href}
             style={{
@@ -60,7 +61,7 @@ export default function ToolsIndex() {
           >
             <h2 style={{ fontSize: 19, fontWeight: 700, margin: 0 }}>{t.title}</h2>
             <p style={{ color: "#8b93b7", fontSize: 14, marginTop: 8, lineHeight: 1.5 }}>{t.blurb}</p>
-          </a>
+          </Link>
         ))}
       </div>
     </main>

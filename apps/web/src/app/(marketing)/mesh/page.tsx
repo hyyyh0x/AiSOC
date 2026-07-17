@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 
 import { getPublicSiteUrl } from "../../../lib/site";
 
@@ -69,9 +70,9 @@ export default async function MeshPage() {
         <p style={{ color: "#8b93b7", fontSize: 15, marginTop: 8, maxWidth: 680 }}>
           The mesh adds a bounded (±0.10) community-consensus signal to the verdict engine. We will publish the{" "}
           <em>measured</em> false-positive-suppression lift (mesh enabled vs. disabled) on the{" "}
-          <a href="/benchmark" style={{ color: "#c4cae0" }}>
+          <Link href="/benchmark" style={{ color: "#c4cae0" }}>
             benchmark page
-          </a>{" "}
+          </Link>{" "}
           once it&apos;s run on real multi-instance data. Until then any lift figure shown is explicitly labelled{" "}
           <strong>simulated</strong> — we never present a synthetic number as measured production performance.
         </p>

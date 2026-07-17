@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { getPublicSiteUrl } from "../../../../../lib/site";
@@ -75,9 +76,9 @@ export default async function PairPage({ params }: PageProps) {
     <main>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
       <nav style={{ fontSize: 13, color: "#6b7394" }}>
-        <a href="/tools/translate" style={{ color: "#8b93b7" }}>
+        <Link href="/tools/translate" style={{ color: "#8b93b7" }}>
           ← All formats
-        </a>
+        </Link>
       </nav>
       <h1 style={{ fontSize: 30, fontWeight: 800, margin: "12px 0 0" }}>
         Convert {fromL} to {toL}

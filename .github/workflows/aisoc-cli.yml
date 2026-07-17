@@ -88,8 +88,10 @@ jobs:
         run: |
           set -euo pipefail
           cd packages/aisoc-lite
-          node dist/cli.js triage --demo --json --no-telemetry \
-            | node -e "const d=JSON.parse(require('fs').readFileSync(0));if(d.summary.total!==200)process.exit(1)"
+          # Write to a file rather than piping: readFileSync(0) truncates a pipe
+          # at the 64KB buffer, and the 200-verdict --json payload exceeds that.
+          node dist/cli.js triage --demo --json --no-telemetry > /tmp/aisoc-demo.json
+          node -e "const d=JSON.parse(require('fs').readFileSync('/tmp/aisoc-demo.json','utf8'));if(d.summary.total!==200)process.exit(1)"
       - name: translate produces every dialect deterministically (no LLM key)
         run: |
           set -euo pipefail

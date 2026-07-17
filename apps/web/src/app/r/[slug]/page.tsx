@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { fetchPublicReplay } from "../../../lib/replay";
@@ -39,9 +40,9 @@ export default async function ReplayPage({ params }: PageProps) {
   return (
     <main style={{ background: "#0b1020", minHeight: "100vh", color: "#e6e9f5", padding: "48px 24px" }}>
       <div style={{ maxWidth: 1040, margin: "0 auto" }}>
-        <a href="/" style={{ color: "#8b93b7", textDecoration: "none", fontSize: 14 }}>
+        <Link href="/" style={{ color: "#8b93b7", textDecoration: "none", fontSize: 14 }}>
           ← AiSOC
-        </a>
+        </Link>
         <header style={{ margin: "16px 0 32px" }}>
           <div style={{ color: "#8b93b7", fontSize: 13, textTransform: "uppercase", letterSpacing: 1 }}>
             Public investigation replay · redacted
