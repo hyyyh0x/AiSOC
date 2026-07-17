@@ -9,6 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **v8 W3 — shareable investigation artifacts (the screenshot loop).** Public,
+  immutable, redacted investigation-replay permalinks. New
+  `services/api/app/api/v1/endpoints/replay.py`: `POST /ledger/{run_id}/publish/preview`
+  builds a redacted snapshot **and returns the alias map** so the publisher
+  reviews exactly what will be hidden (the pre-publish diff) before confirming;
+  `POST /ledger/{run_id}/publish` (needs `confirm=true`) re-builds server-side
+  and stores an immutable `published_replays` row (migration `045`, with an
+  UPDATE-blocking trigger that only allows the view counter to change); public
+  `GET /r/{slug}` serves the snapshot without auth from a non-RLS session
+  (the data is post-redaction and non-identifying by design). Redaction reuses
+  the reversible `Pseudonymizer` (vendored into the API via
+  `scripts/sync_vendored_redactor.py`): internal IPs / emails / paths / secrets
+  / internal hostnames / usernames become aliases, while public IOCs + ATT&CK
+  techniques are preserved as the shareable value; only the redacted snapshot is
+  persisted, never the alias map (`services/api/app/services/replay_redaction.py`).
+  Web: a public `/r/[slug]` page renders an animated playback (timeline scrubber,
+  evidence cards, growing attack graph, verdict stamp with elapsed time) with a
+  dynamic `next/og` Open Graph image for X/LinkedIn/Slack unfurls;
+  shields.io-compatible badge endpoints at `/api/badge/<kind>`. New shared
+  `packages/@aisoc/report-card` renders triage / coverage-grade / replay share
+  cards (SVG + Markdown) and is now the canonical renderer behind the CLI
+  `--share` flag (bundled into `aisoc` at build time). The seeded LockBit case
+  `INC-RT-001` is published as the canonical demo replay at `/r/demo-lockbit`.
+  Tests: redaction (no raw PII survives, public IOCs preserved), report-card
+  renderers, badge endpoint, and the replay fetch client. `docs/openapi.yaml`
+  regenerated (+284 lines, additions only).
 - **v8 W1 — `npx aisoc` wedge CLI (the 60-second wow).** New `packages/aisoc-lite/` (TypeScript, published to npm as `aisoc`, one runtime dependency): a zero-install front door that triages a batch of alerts to verdicts in under a minute with **no credentials and no LLM key**. `npx aisoc triage --demo` runs a bundled, fully-deterministic 200-alert fixture in ~50 ms and prints a terminal verdict table plus the copy-pasteable headline "AiSOC triaged 200 alerts: 12 TP, 171 FP suppressed (85.5% noise), 17 need review". The verdict engine (`src/verdict/stages.ts`) is a faithful port of the production triage scorer `services/agents/app/confidence/scoring.py` — the weight stack and band thresholds (≥.80 TP, ≥.60 likely-TP, ≥.40 review, else benign; clamp [0.05, 0.95]) are pinned by a parity test so a CLI verdict lands where the full stack would. `--file alerts.jsonl` triages a local export (Splunk / Sentinel / Elastic ECS / CrowdStrike field spellings auto-detected); `--llm` refines only the ambiguous `needs_review` middle using the user's **own** `ANTHROPIC_API_KEY`/`OPENAI_API_KEY` called directly (never proxied); `--share` writes a redacted, aggregate-only report card (Markdown + 1200×630 SVG, no alert content); `translate` is a CLI front for the deterministic detection-rule field-map translator (Sigma/SPL/KQL/ES\|QL/YARA-L2/UDM); `up` boots the full demo stack from a pinned Compose bundle. Telemetry is strictly opt-in (`--telemetry` / `AISOC_TELEMETRY=1`, default off), aggregate counts only, documented in `packages/aisoc-lite/TELEMETRY.md` and asserted content-free by a unit test. 22 vitest tests. New CI: `aisoc-cli.yml` (build + typecheck + tests + a cross-platform cold `triage --demo` e2e asserting the headline and a <60 s bound + a fixture-staleness diff gate) and `publish-cli.yml` (npm publish with build provenance on a `cli-v*` tag; no-ops safely until `NPM_TOKEN` is configured — we never fake a publish). README top fold rewritten around the one-liner (guarded "lands on npm with the v8.0 launch; today it builds from `packages/aisoc-lite/`").
 
 ## [7.6.0] — 2026-07-13

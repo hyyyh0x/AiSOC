@@ -15,4 +15,7 @@ export default defineConfig({
   sourcemap: false,
   minify: false,
   splitting: false,
+  // Bundle the shared report-card renderer INTO dist so the published `aisoc`
+  // package has no unpublished workspace dependency at install time.
+  noExternal: ["@aisoc/report-card"],
 });

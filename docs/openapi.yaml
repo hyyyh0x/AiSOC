@@ -6715,6 +6715,165 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/ledger/{run_id}/publish/preview:
+    post:
+      tags:
+      - replay
+      summary: Preview Publish
+      description: Build the redacted snapshot + alias map for the pre-publish review.
+      operationId: preview_publish_api_v1_ledger__run_id__publish_preview_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Run Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublishPreview'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/ledger/{run_id}/publish:
+    post:
+      tags:
+      - replay
+      summary: Publish Replay
+      description: Persist an immutable, redacted public snapshot and return its share
+        URL.
+      operationId: publish_replay_api_v1_ledger__run_id__publish_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Run Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PublishRequest'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublishResult'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/ledger/{run_id}/published:
+    get:
+      tags:
+      - replay
+      summary: List Published
+      operationId: list_published_api_v1_ledger__run_id__published_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Run Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PublishedSummary'
+                title: Response List Published Api V1 Ledger  Run Id  Published Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/ledger/publish/{slug}:
+    delete:
+      tags:
+      - replay
+      summary: Unpublish Replay
+      operationId: unpublish_replay_api_v1_ledger_publish__slug__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: slug
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Slug
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/r/{slug}:
+    get:
+      tags:
+      - replay-public
+      summary: Get Public Replay
+      description: 'Public, unauthenticated read of a redacted replay snapshot.
+
+
+        Uses a non-RLS session because ``published_replays`` is intentionally
+
+        public-by-design (post-redaction, non-identifying). Increments a
+
+        best-effort view counter (the only mutation the immutability trigger
+
+        permits).'
+      operationId: get_public_replay_api_v1_r__slug__get
+      parameters:
+      - name: slug
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Slug
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicReplay'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/identity/effective-permissions/providers:
     get:
       tags:
@@ -21765,6 +21924,101 @@ components:
       - created_at
       - updated_at
       title: ProposalResponse
+    PublicReplay:
+      properties:
+        slug:
+          type: string
+          title: Slug
+        title:
+          type: string
+          title: Title
+        case_id:
+          type: string
+          title: Case Id
+        snapshot:
+          additionalProperties: true
+          type: object
+          title: Snapshot
+        view_count:
+          type: integer
+          title: View Count
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+      type: object
+      required:
+      - slug
+      - title
+      - case_id
+      - snapshot
+      - view_count
+      - created_at
+      title: PublicReplay
+    PublishPreview:
+      properties:
+        run_id:
+          type: string
+          format: uuid
+          title: Run Id
+        title:
+          type: string
+          title: Title
+        snapshot:
+          additionalProperties: true
+          type: object
+          title: Snapshot
+        alias_map:
+          additionalProperties:
+            type: string
+          type: object
+          title: Alias Map
+      type: object
+      required:
+      - run_id
+      - title
+      - snapshot
+      - alias_map
+      title: PublishPreview
+      description: 'Pre-publish diff: what the public will see + what will be hidden.'
+    PublishRequest:
+      properties:
+        confirm:
+          type: boolean
+          title: Confirm
+          description: Must be true to publish.
+          default: false
+        title_override:
+          anyOf:
+          - type: string
+            maxLength: 200
+          - type: 'null'
+          title: Title Override
+      type: object
+      title: PublishRequest
+    PublishResult:
+      properties:
+        slug:
+          type: string
+          title: Slug
+        url:
+          type: string
+          title: Url
+        run_id:
+          type: string
+          format: uuid
+          title: Run Id
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+      type: object
+      required:
+      - slug
+      - url
+      - run_id
+      - created_at
+      title: PublishResult
     PublishStatus:
       type: string
       enum:
@@ -21772,6 +22026,36 @@ components:
       - approved
       - rejected
       title: PublishStatus
+    PublishedSummary:
+      properties:
+        slug:
+          type: string
+          title: Slug
+        url:
+          type: string
+          title: Url
+        title:
+          type: string
+          title: Title
+        case_id:
+          type: string
+          title: Case Id
+        view_count:
+          type: integer
+          title: View Count
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+      type: object
+      required:
+      - slug
+      - url
+      - title
+      - case_id
+      - view_count
+      - created_at
+      title: PublishedSummary
     QueryRequest:
       properties:
         question:
