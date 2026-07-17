@@ -10,8 +10,6 @@
     "test": "vitest run"
   },
   "devDependencies": {
-    "@actions/core": "^1.11.1",
-    "@actions/github": "^6.0.0",
     "@aisoc/report-card": "workspace:*",
     "@types/node": "^25.9.2",
     "tsup": "^8.3.0",

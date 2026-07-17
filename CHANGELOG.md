@@ -113,7 +113,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   amplification. The launch-kit README points every claim back to the benchmark
   page + claim-to-gate matrix so nothing ungated gets published.
 - **v8 W4 — GitHub-native distribution (`aisoc-action`).** New
-  `packages/aisoc-action/` (Node20 JS action): triages the repo's **own**
+  `packages/aisoc-action/` (Node20 JS action, **dependency-free** — a
+  hand-rolled Actions runtime + a `fetch`-based GitHub REST client, deliberately
+  no `@actions/*`/octokit so the shipped bundle carries no vulnerable `undici`;
+  the committed bundle is 18 KB): triages the repo's **own**
   security signals — Dependabot alerts, CodeQL/code-scanning findings, and
   secret-scanning alerts — with the deterministic AiSOC verdict engine (no LLM,
   nothing leaves the runner) and posts verdicts + suppression rationale +

@@ -4,14 +4,15 @@
  * Fetches the repo's Dependabot / CodeQL / secret-scanning alerts, triages them
  * with the deterministic AiSOC verdict engine (no LLM, nothing leaves CI), and
  * emits a job summary, a PR comment, or a weekly posture-digest issue.
+ *
+ * Dependency-free: uses a hand-rolled Actions runtime + a fetch-based GitHub
+ * client (see gh.ts) so the shipped bundle carries no known-vulnerable deps.
  */
 
-import * as core from "@actions/core";
-import * as github from "@actions/github";
 import { triageBatch, type Severity } from "./_vendor/verdict/index.js";
-
+import { GitHubClient, getContext, getInput, info, setFailed, setOutput, warning, writeSummary } from "./gh.js";
 import { fetchAlerts } from "./sources.js";
-import { COMMENT_MARKER, renderComment, renderDigest, postureGrade, priorityLine } from "./render.js";
+import { COMMENT_MARKER, postureGrade, priorityLine, renderComment, renderDigest } from "./render.js";
 
 const SEVERITY_ORDER: Severity[] = ["info", "low", "medium", "high", "critical"];
 
@@ -20,87 +21,97 @@ function atLeast(sev: Severity, floor: Severity): boolean {
 }
 
 async function run(): Promise<void> {
-  const token = core.getInput("github-token") || process.env.GITHUB_TOKEN || "";
-  const mode = (core.getInput("mode") || "job-summary").trim();
-  const minSeverity = (core.getInput("min-severity") || "low").trim() as Severity;
-  const failOn = (core.getInput("fail-on") || "none").trim();
-  const sources = (core.getInput("sources") || "dependabot,code-scanning,secret-scanning").split(",").map((s) => s.trim());
+  const token = getInput("github-token") || process.env.GITHUB_TOKEN || "";
+  const mode = getInput("mode", "job-summary");
+  const minSeverity = (getInput("min-severity", "low") || "low") as Severity;
+  const failOn = getInput("fail-on", "none") || "none";
+  const sources = getInput("sources", "dependabot,code-scanning,secret-scanning")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
 
   if (!token) {
-    core.setFailed("github-token is required (grant security-events:read).");
+    setFailed("github-token is required (grant security-events:read).");
     return;
   }
 
-  const octokit = github.getOctokit(token);
-  const { owner, repo } = github.context.repo;
+  const ctx = getContext();
+  const client = new GitHubClient(token);
 
-  core.info(`AiSOC: triaging security signals for ${owner}/${repo} (sources: ${sources.join(", ")})`);
-  const { alerts, notes } = await fetchAlerts(octokit as any, owner, repo, sources);
+  info(`AiSOC: triaging security signals for ${ctx.owner}/${ctx.repo} (sources: ${sources.join(", ")})`);
+  const { alerts, notes } = await fetchAlerts(client, ctx.owner, ctx.repo, sources);
 
   const filtered = alerts.filter((a) => atLeast(a.severity, minSeverity));
   const result = triageBatch(filtered, { deterministic: true });
 
-  core.setOutput("total", String(result.summary.total));
-  core.setOutput("escalate", String(result.summary.truePositive));
-  core.setOutput("review", String(result.summary.needsReview));
-  core.setOutput("suppress", String(result.summary.suppressed));
-  core.setOutput("headline", result.summary.headline);
-  core.info(result.summary.headline);
+  setOutput("total", String(result.summary.total));
+  setOutput("escalate", String(result.summary.truePositive));
+  setOutput("review", String(result.summary.needsReview));
+  setOutput("suppress", String(result.summary.suppressed));
+  setOutput("headline", result.summary.headline);
+  info(result.summary.headline);
 
-  // Always write a job summary.
   const { grade, score } = postureGrade(result);
-  core.summary
-    .addHeading("🛡️ AiSOC security triage", 2)
-    .addRaw(`\n> ${result.summary.headline}\n\n`)
-    .addRaw(`Posture grade: **${grade}** (${score}/100). ${priorityLine(result)}\n\n`);
-  if (notes.length) core.summary.addRaw("Notes:\n" + notes.map((n) => `- ${n}`).join("\n") + "\n");
-  await core.summary.write();
+  const summaryMd = [
+    "## 🛡️ AiSOC security triage",
+    "",
+    `> ${result.summary.headline}`,
+    "",
+    `Posture grade: **${grade}** (${score}/100). ${priorityLine(result)}`,
+    ...(notes.length ? ["", "Notes:", ...notes.map((n) => `- ${n}`)] : []),
+  ].join("\n");
+  writeSummary(summaryMd);
 
   if (mode === "pr-comment") {
-    await upsertPrComment(octokit, owner, repo, renderComment(result, notes));
+    await upsertPrComment(client, ctx.owner, ctx.repo, ctx.prNumber, renderComment(result, notes));
   } else if (mode === "digest") {
-    await upsertDigestIssue(octokit, owner, repo, renderDigest(result, null, notes));
+    await upsertDigestIssue(client, ctx.owner, ctx.repo, renderDigest(result, null, notes));
   }
 
   if (failOn !== "none") {
     const escalate = result.summary.truePositive;
     const review = result.summary.needsReview;
     const shouldFail = failOn === "true_positive" ? escalate > 0 : failOn === "needs_review" ? escalate + review > 0 : false;
-    if (shouldFail) core.setFailed(`AiSOC: ${escalate} act-now + ${review} review findings meet fail-on=${failOn}.`);
+    if (shouldFail) setFailed(`AiSOC: ${escalate} act-now + ${review} review findings meet fail-on=${failOn}.`);
   }
 }
 
-async function upsertPrComment(octokit: ReturnType<typeof github.getOctokit>, owner: string, repo: string, body: string): Promise<void> {
-  const pr = github.context.payload.pull_request?.number;
-  if (!pr) {
-    core.info("Not a pull_request event; skipping PR comment (job summary written instead).");
+async function upsertPrComment(
+  client: GitHubClient,
+  owner: string,
+  repo: string,
+  prNumber: number | null,
+  body: string,
+): Promise<void> {
+  if (!prNumber) {
+    info("Not a pull_request event; skipping PR comment (job summary written instead).");
     return;
   }
   try {
-    const { data: comments } = await octokit.rest.issues.listComments({ owner, repo, issue_number: pr, per_page: 100 });
+    const comments = (await client.paginate(`/repos/${owner}/${repo}/issues/${prNumber}/comments`)) as { id: number; body?: string }[];
     const existing = comments.find((c) => c.body?.includes(COMMENT_MARKER));
     if (existing) {
-      await octokit.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+      await client.request("PATCH", `/repos/${owner}/${repo}/issues/comments/${existing.id}`, { body });
     } else {
-      await octokit.rest.issues.createComment({ owner, repo, issue_number: pr, body });
+      await client.request("POST", `/repos/${owner}/${repo}/issues/${prNumber}/comments`, { body });
     }
-  } catch (err: any) {
-    core.warning(`Could not post PR comment (${err?.message ?? "error"}); the job summary still has the results.`);
+  } catch (err) {
+    warning(`Could not post PR comment (${(err as Error).message}); the job summary still has the results.`);
   }
 }
 
-async function upsertDigestIssue(octokit: ReturnType<typeof github.getOctokit>, owner: string, repo: string, body: string): Promise<void> {
+async function upsertDigestIssue(client: GitHubClient, owner: string, repo: string, body: string): Promise<void> {
   const title = "🛡️ AiSOC weekly security posture";
   try {
-    const { data: issues } = await octokit.rest.issues.listForRepo({ owner, repo, state: "open", labels: "aisoc-digest", per_page: 10 });
+    const issues = (await client.paginate(`/repos/${owner}/${repo}/issues?state=open&labels=aisoc-digest`)) as { number: number }[];
     if (issues[0]) {
-      await octokit.rest.issues.update({ owner, repo, issue_number: issues[0].number, body });
+      await client.request("PATCH", `/repos/${owner}/${repo}/issues/${issues[0].number}`, { body });
     } else {
-      await octokit.rest.issues.create({ owner, repo, title, body, labels: ["aisoc-digest"] });
+      await client.request("POST", `/repos/${owner}/${repo}/issues`, { title, body, labels: ["aisoc-digest"] });
     }
-  } catch (err: any) {
-    core.warning(`Could not create/update the digest issue (${err?.message ?? "error"}).`);
+  } catch (err) {
+    warning(`Could not create/update the digest issue (${(err as Error).message}).`);
   }
 }
 
-run().catch((err) => core.setFailed(err instanceof Error ? err.message : String(err)));
+run().catch((err) => setFailed(err instanceof Error ? err.message : String(err)));

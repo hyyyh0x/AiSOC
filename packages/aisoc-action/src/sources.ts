@@ -9,9 +9,9 @@
 
 import type { Alert, Severity } from "./_vendor/verdict/index.js";
 
-// Minimal octokit surface we depend on (paginate + request).
+// Minimal client surface we depend on (paginate over a REST path).
 export interface OctokitLike {
-  paginate: (route: string, params: Record<string, unknown>) => Promise<unknown[]>;
+  paginate: (path: string) => Promise<unknown[]>;
 }
 
 export interface FetchResult {
@@ -106,25 +106,25 @@ async function safe(fetchFn: () => Promise<unknown[]>, label: string, notes: str
 }
 
 export async function fetchAlerts(
-  octokit: OctokitLike,
+  client: OctokitLike,
   owner: string,
   repo: string,
   sources: string[],
 ): Promise<FetchResult> {
   const alerts: Alert[] = [];
   const notes: string[] = [];
-  const base = { owner, repo, state: "open", per_page: 100 };
+  const q = "?state=open";
 
   if (sources.includes("dependabot")) {
-    const rows = await safe(() => octokit.paginate("GET /repos/{owner}/{repo}/dependabot/alerts", base), "Dependabot", notes);
+    const rows = await safe(() => client.paginate(`/repos/${owner}/${repo}/dependabot/alerts${q}`), "Dependabot", notes);
     alerts.push(...rows.map((r) => mapDependabot(r as Record<string, any>)));
   }
   if (sources.includes("code-scanning")) {
-    const rows = await safe(() => octokit.paginate("GET /repos/{owner}/{repo}/code-scanning/alerts", base), "Code scanning", notes);
+    const rows = await safe(() => client.paginate(`/repos/${owner}/${repo}/code-scanning/alerts${q}`), "Code scanning", notes);
     alerts.push(...rows.map((r) => mapCodeScanning(r as Record<string, any>)));
   }
   if (sources.includes("secret-scanning")) {
-    const rows = await safe(() => octokit.paginate("GET /repos/{owner}/{repo}/secret-scanning/alerts", base), "Secret scanning", notes);
+    const rows = await safe(() => client.paginate(`/repos/${owner}/${repo}/secret-scanning/alerts${q}`), "Secret scanning", notes);
     alerts.push(...rows.map((r) => mapSecretScanning(r as Record<string, any>)));
   }
   return { alerts, notes };
