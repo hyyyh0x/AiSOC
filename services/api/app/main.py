@@ -67,6 +67,60 @@ async def _run_guarded_scheduler_worker(
             return
 
 
+async def _demo_self_heal_bootstrap() -> None:
+    """Best-effort schema + seed bootstrap for the hosted demo, run in the background.
+
+    The demo's Fly Postgres autostops, so the deploy-time ``release_command`` VM
+    frequently can't reach it — new migrations stay unapplied and the demo goes
+    unseeded (e.g. ``/r/demo-lockbit`` 500s on a missing ``published_replays``
+    table). The always-warm API VM *can* reach Postgres (its own traffic wakes
+    it), so it is the reliable bootstrap path. We (re)apply pending SQL
+    migrations and, only if the canonical replay is missing (i.e. the
+    release_command's seed was skipped), run the idempotent demo seed. Detached
+    from boot so it never blocks readiness; every failure is logged and swallowed.
+    """
+    # Give readiness a moment to flip and health-check / request traffic a
+    # chance to wake Postgres from autostop before the first connect.
+    await asyncio.sleep(5)
+
+    try:
+        from app.scripts.run_migrations import main as run_sql_migrations  # noqa: PLC0415
+
+        await run_sql_migrations()
+        logger.info("demo bootstrap: SQL migrations applied")
+    except Exception as exc:
+        logger.warning("demo bootstrap: migration run failed; skipping seed", error=str(exc))
+        return
+
+    # Seed only when the canonical replay is absent — meaning the deploy-time
+    # seed was skipped — so routine deploys don't re-purge demo data every boot.
+    try:
+        from sqlalchemy import select  # noqa: PLC0415
+
+        from app.db.database import AsyncSessionLocal  # noqa: PLC0415
+        from app.models.published_replay import PublishedReplay  # noqa: PLC0415
+        from app.scripts.seed_demo import CANONICAL_REPLAY_SLUG  # noqa: PLC0415
+
+        async with AsyncSessionLocal() as session:
+            already_seeded = await session.scalar(select(PublishedReplay.id).where(PublishedReplay.slug == CANONICAL_REPLAY_SLUG))
+        if already_seeded:
+            logger.info("demo bootstrap: canonical replay present — seed not needed")
+            return
+    except Exception as exc:
+        logger.warning(
+            "demo bootstrap: seed-needed check failed; attempting seed anyway",
+            error=str(exc),
+        )
+
+    try:
+        from app.scripts.seed_demo import _run_full_seed  # noqa: PLC0415
+
+        await _run_full_seed()
+        logger.info("demo bootstrap: demo seed complete")
+    except Exception as exc:
+        logger.warning("demo bootstrap: seed failed", error=str(exc))
+
+
 # Prometheus metrics
 REQUEST_COUNT = Counter(
     "aisoc_http_requests_total",
@@ -107,12 +161,21 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # Apply raw-SQL migrations (services/api/migrations/*.sql). These cover
     # tables that aren't part of the SQLAlchemy ORM (aisoc_cases, MSSP, EASM,
-    # connector schema-drift, etc.). The runner is idempotent: each migration
-    # is tracked in aisoc_schema_migrations so it only runs once. We exclude
-    # production for now since prod is expected to have a managed migration
-    # pipeline; demo / dev environments bootstrap themselves on boot so the
-    # first deploy of a new feature is usable immediately.
-    if settings.is_dev:
+    # connector schema-drift, etc.). The runner is idempotent (tracked in
+    # aisoc_schema_migrations). Production is excluded — it uses a managed
+    # migration pipeline.
+    #
+    # The hosted demo (AISOC_DEMO_MODE) self-heals in the BACKGROUND: its Fly
+    # Postgres autostops, so the deploy-time release_command often can't reach
+    # it. Running detached (not awaited) keeps a cold-Postgres connect-retry
+    # from blocking readiness, and it also runs the demo seed so a soft-failed
+    # release_command still yields a populated demo. Plain dev keeps the fast
+    # synchronous path (local Postgres, no seed).
+    demo_bootstrap_task: asyncio.Task | None = None
+    if settings.AISOC_DEMO_MODE:
+        demo_bootstrap_task = asyncio.create_task(_demo_self_heal_bootstrap(), name="demo_bootstrap")
+        logger.info("demo self-heal bootstrap scheduled")
+    elif settings.is_dev:
         try:
             from app.scripts.run_migrations import main as run_sql_migrations  # noqa: PLC0415
 
@@ -230,6 +293,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             logger.debug("hunt_scheduler worker cancelled during shutdown")
         except Exception as exc:
             logger.warning("hunt_scheduler worker shutdown error", error=type(exc).__name__)
+
+    if demo_bootstrap_task is not None and not demo_bootstrap_task.done():
+        demo_bootstrap_task.cancel()
+        try:
+            await demo_bootstrap_task
+        except asyncio.CancelledError:
+            logger.debug("demo bootstrap cancelled during shutdown")
+        except Exception as exc:
+            logger.warning("demo bootstrap shutdown error", error=type(exc).__name__)
     await engine.dispose()
     await close_neo4j()
     # Close the ClickHouse warm-tier client. We don't pre-init it on
