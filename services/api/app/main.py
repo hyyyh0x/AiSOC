@@ -86,66 +86,42 @@ async def _demo_self_heal_bootstrap() -> None:
     from sqlalchemy import select, text  # noqa: PLC0415
 
     from app.db.database import AsyncSessionLocal  # noqa: PLC0415
+    from app.models.published_replay import PublishedReplay  # noqa: PLC0415
+    from app.scripts.run_migrations import main as run_sql_migrations  # noqa: PLC0415
+    from app.scripts.seed_demo import CANONICAL_REPLAY_SLUG, _run_full_seed  # noqa: PLC0415
 
     # Give readiness a moment to flip before we start touching the DB.
     await asyncio.sleep(5)
 
-    # 1) Wake Postgres via the engine path (the same one request handlers use,
-    #    which reliably triggers Fly autostart) and confirm connectivity before
-    #    migrating — a cold autostart can take a while.
-    reachable = False
-    for attempt in range(1, 21):  # ~5 min of patience for a cold autostart
+    # The demo's Fly Postgres autostops; the deploy-time release_command VM can't
+    # reach it, and even the API VM can only reach it once ingress traffic (a
+    # visitor, health probe, or our own connect) has triggered autostart — which
+    # can land at any time and race a fixed startup window. So retry the whole
+    # ensure-migrated-and-seeded operation periodically until it lands. Each pass
+    # is cheap once the schema is present (the presence check short-circuits), so
+    # routine deploys (table + row already there) exit on the first attempt with
+    # no seed; only the broken state (missing table) triggers migrate + seed.
+    for attempt in range(1, 41):  # ~30 min at a 45s cadence
         try:
             async with AsyncSessionLocal() as session:
-                await session.execute(text("SELECT 1"))
-            reachable = True
-            break
-        except Exception as exc:  # noqa: BLE001 — transient boot/connect races
-            logger.info(
-                "demo bootstrap: waiting for Postgres (attempt %d/20): %s",
-                attempt,
-                type(exc).__name__,
-            )
-            await asyncio.sleep(min(2 ** (attempt - 1), 15))
-    if not reachable:
-        logger.warning("demo bootstrap: Postgres never became reachable — skipping")
-        return
+                await session.execute(text("SELECT 1"))  # wake / confirm connectivity
+                seeded = await session.scalar(select(PublishedReplay.id).where(PublishedReplay.slug == CANONICAL_REPLAY_SLUG))
+            if seeded:
+                logger.info("demo bootstrap: canonical replay present — done (attempt %d)", attempt)
+                return
+        except Exception as exc:  # noqa: BLE001 — table-missing or DB-unreachable; migrate below
+            logger.info("demo bootstrap: schema not ready (attempt %d/40): %s", attempt, type(exc).__name__)
 
-    # 2) Apply pending SQL migrations (idempotent). Postgres is up now, so the
-    #    runner's own asyncpg connect succeeds.
-    try:
-        from app.scripts.run_migrations import main as run_sql_migrations  # noqa: PLC0415
+        try:
+            await run_sql_migrations()
+            await _run_full_seed()
+            logger.info("demo bootstrap: migrate + seed pass complete (attempt %d)", attempt)
+        except Exception as exc:  # noqa: BLE001 — Postgres likely still cold; retry next tick
+            logger.info("demo bootstrap: migrate+seed deferred (attempt %d/40): %s", attempt, type(exc).__name__)
 
-        await run_sql_migrations()
-        logger.info("demo bootstrap: SQL migrations applied")
-    except Exception as exc:
-        logger.warning("demo bootstrap: migration run failed; skipping seed", error=str(exc))
-        return
+        await asyncio.sleep(45)
 
-    # 3) Seed only when the canonical replay is absent — meaning the deploy-time
-    #    seed was skipped — so routine deploys don't re-purge demo data every boot.
-    try:
-        from app.models.published_replay import PublishedReplay  # noqa: PLC0415
-        from app.scripts.seed_demo import CANONICAL_REPLAY_SLUG  # noqa: PLC0415
-
-        async with AsyncSessionLocal() as session:
-            already_seeded = await session.scalar(select(PublishedReplay.id).where(PublishedReplay.slug == CANONICAL_REPLAY_SLUG))
-        if already_seeded:
-            logger.info("demo bootstrap: canonical replay present — seed not needed")
-            return
-    except Exception as exc:
-        logger.warning(
-            "demo bootstrap: seed-needed check failed; attempting seed anyway",
-            error=str(exc),
-        )
-
-    try:
-        from app.scripts.seed_demo import _run_full_seed  # noqa: PLC0415
-
-        await _run_full_seed()
-        logger.info("demo bootstrap: demo seed complete")
-    except Exception as exc:
-        logger.warning("demo bootstrap: seed failed", error=str(exc))
+    logger.warning("demo bootstrap: gave up after 40 attempts (~30 min)")
 
 
 # Prometheus metrics
