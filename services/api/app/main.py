@@ -67,6 +67,21 @@ async def _run_guarded_scheduler_worker(
             return
 
 
+# In-process status of the demo self-heal bootstrap, surfaced read-only on
+# /health so the demo DB bootstrap is diagnosable without Fly log access. Only
+# non-sensitive fields are exposed (booleans + exception *type* names — never
+# messages, which could carry internal hostnames/DSNs).
+_DEMO_BOOTSTRAP_STATUS: dict[str, object] = {
+    "enabled": False,
+    "attempts": 0,
+    "reachable": None,
+    "table_present": None,
+    "seeded": None,
+    "done": False,
+    "last_error_type": None,
+}
+
+
 async def _demo_self_heal_bootstrap() -> None:
     """Best-effort schema + seed bootstrap for the hosted demo, run in the background.
 
@@ -89,6 +104,8 @@ async def _demo_self_heal_bootstrap() -> None:
     from app.models.published_replay import PublishedReplay  # noqa: PLC0415
     from app.scripts.seed_demo import CANONICAL_REPLAY_SLUG, _run_full_seed  # noqa: PLC0415
 
+    _DEMO_BOOTSTRAP_STATUS["enabled"] = True
+
     # Give readiness a moment to flip before we start touching the DB.
     await asyncio.sleep(5)
 
@@ -96,19 +113,24 @@ async def _demo_self_heal_bootstrap() -> None:
     # reach it, and even the API VM can only reach it once ingress traffic (a
     # visitor, health probe, or our own connect) has triggered autostart — which
     # can land at any time and race a fixed startup window. So retry the whole
-    # ensure-migrated-and-seeded operation periodically until it lands. Each pass
+    # ensure-created-and-seeded operation periodically until it lands. Each pass
     # is cheap once the schema is present (the presence check short-circuits), so
     # routine deploys (table + row already there) exit on the first attempt with
-    # no seed; only the broken state (missing table) triggers migrate + seed.
+    # no seed; only the broken state (missing table) triggers create + seed.
     for attempt in range(1, 41):  # ~30 min at a 45s cadence
+        _DEMO_BOOTSTRAP_STATUS["attempts"] = attempt
         try:
             async with AsyncSessionLocal() as session:
                 await session.execute(text("SELECT 1"))  # wake / confirm connectivity
+                _DEMO_BOOTSTRAP_STATUS["reachable"] = True
                 seeded = await session.scalar(select(PublishedReplay.id).where(PublishedReplay.slug == CANONICAL_REPLAY_SLUG))
+                _DEMO_BOOTSTRAP_STATUS["table_present"] = True
             if seeded:
+                _DEMO_BOOTSTRAP_STATUS.update(seeded=True, done=True, last_error_type=None)
                 logger.info("demo bootstrap: canonical replay present — done (attempt %d)", attempt)
                 return
-        except Exception as exc:  # noqa: BLE001 — table-missing or DB-unreachable; migrate below
+        except Exception as exc:  # noqa: BLE001 — table-missing or DB-unreachable; create below
+            _DEMO_BOOTSTRAP_STATUS["last_error_type"] = f"probe:{type(exc).__name__}"
             logger.info("demo bootstrap: schema not ready (attempt %d/40): %s", attempt, type(exc).__name__)
 
         try:
@@ -119,9 +141,13 @@ async def _demo_self_heal_bootstrap() -> None:
             # canonical replay + demo data through the same engine-backed session.
             async with engine.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)
+            _DEMO_BOOTSTRAP_STATUS["table_present"] = True
             await _run_full_seed()
+            _DEMO_BOOTSTRAP_STATUS.update(seeded=True, done=True, last_error_type=None)
             logger.info("demo bootstrap: create_all + seed pass complete (attempt %d)", attempt)
+            return
         except Exception as exc:  # noqa: BLE001 — Postgres likely still waking; retry next tick
+            _DEMO_BOOTSTRAP_STATUS["last_error_type"] = f"create_seed:{type(exc).__name__}"
             logger.info("demo bootstrap: create_all+seed deferred (attempt %d/40): %s", attempt, type(exc).__name__)
 
         await asyncio.sleep(45)
@@ -448,6 +474,7 @@ async def health_check() -> dict:
         "service": "aisoc-api",
         "version": settings.VERSION,
         "airgap": airgap_status(),
+        "demo_bootstrap": _DEMO_BOOTSTRAP_STATUS,
     }
 
 
