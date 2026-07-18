@@ -23,13 +23,15 @@ from app.adversary.scope_guard import Asset, LabScope, assert_in_scope
 class TelemetryEmitter(Protocol):
     """Emit the telemetry a step would generate. Returns an opaque event ref."""
 
-    def emit(self, step: CampaignStep) -> dict: ...
+    def emit(self, step: CampaignStep) -> dict:
+        """Return an opaque event ref for the telemetry this step generates."""
 
 
 class DetectionOracle(Protocol):
     """Report whether a technique was detected by the live defense."""
 
-    def was_detected(self, technique_id: str, event: dict) -> tuple[bool, float | None, str | None]: ...
+    def was_detected(self, technique_id: str, event: dict) -> tuple[bool, float | None, str | None]:
+        """Report (detected, confidence, detector) for a technique against an event."""
 
 
 class InMemoryEmitter:

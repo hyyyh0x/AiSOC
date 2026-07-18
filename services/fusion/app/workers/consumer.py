@@ -126,7 +126,7 @@ class FusionWorker:
         if self._flush_task is not None:
             self._flush_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
-                await self._flush_task
+                _ = await self._flush_task  # await the cancellation to settle
             self._flush_task = None
         if self._consumer:
             await self._consumer.stop()

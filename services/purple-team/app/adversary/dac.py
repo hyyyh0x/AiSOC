@@ -61,7 +61,10 @@ def build_gap_proposal(miss: StepResult) -> DacProposalDraft:
 
 
 class DacFiler(Protocol):
-    def file(self, draft: DacProposalDraft) -> str: ...
+    """Files a detection-as-code proposal draft; returns an opaque proposal ref."""
+
+    def file(self, draft: DacProposalDraft) -> str:
+        """File the proposal draft and return an opaque reference to it."""
 
 
 class InMemoryFiler:

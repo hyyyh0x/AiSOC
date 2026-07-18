@@ -24,24 +24,6 @@ from typing import Any
 
 from app._vendor.redactor import Pseudonymizer, RedactionConfig
 
-# MITRE tactic ordering for laying out a simple left-to-right kill-chain graph.
-_TACTIC_ORDER = [
-    "reconnaissance",
-    "resource-development",
-    "initial-access",
-    "execution",
-    "persistence",
-    "privilege-escalation",
-    "defense-evasion",
-    "credential-access",
-    "discovery",
-    "lateral-movement",
-    "collection",
-    "command-and-control",
-    "exfiltration",
-    "impact",
-]
-
 
 @dataclass
 class ReplaySnapshot:

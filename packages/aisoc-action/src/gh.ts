@@ -62,7 +62,10 @@ export function getContext(): ActionContext {
   if (eventPath) {
     try {
       const payload = JSON.parse(readFileSync(eventPath, "utf8")) as { pull_request?: { number?: number } };
-      prNumber = payload.pull_request?.number ?? null;
+      // Coerce to a strict positive integer so nothing from the event file can
+      // flow verbatim into request URLs (it's only ever used as `/…/{n}/…`).
+      const raw = payload.pull_request?.number;
+      prNumber = typeof raw === "number" && Number.isInteger(raw) && raw > 0 ? raw : null;
     } catch {
       prNumber = null;
     }
