@@ -73,16 +73,46 @@ async def _demo_self_heal_bootstrap() -> None:
     The demo's Fly Postgres autostops, so the deploy-time ``release_command`` VM
     frequently can't reach it — new migrations stay unapplied and the demo goes
     unseeded (e.g. ``/r/demo-lockbit`` 500s on a missing ``published_replays``
-    table). The always-warm API VM *can* reach Postgres (its own traffic wakes
-    it), so it is the reliable bootstrap path. We (re)apply pending SQL
-    migrations and, only if the canonical replay is missing (i.e. the
-    release_command's seed was skipped), run the idempotent demo seed. Detached
-    from boot so it never blocks readiness; every failure is logged and swallowed.
+    table). The always-warm API VM can reach Postgres, but only its request /
+    SQLAlchemy-engine path reliably triggers the Fly autostart — a bare
+    ``asyncpg`` connect at boot can race the cold start and give up (and
+    run_migrations soft-fails silently on the demo, AISOC_MIGRATIONS_REQUIRED=0,
+    so that race would leave the schema stale without surfacing an error). So we
+    first wake Postgres through the engine (retrying generously), then (re)apply
+    pending SQL migrations and — only if the canonical replay is missing — run
+    the idempotent demo seed. Detached from boot so it never blocks readiness;
+    every failure is logged and swallowed.
     """
-    # Give readiness a moment to flip and health-check / request traffic a
-    # chance to wake Postgres from autostop before the first connect.
+    from sqlalchemy import select, text  # noqa: PLC0415
+
+    from app.db.database import AsyncSessionLocal  # noqa: PLC0415
+
+    # Give readiness a moment to flip before we start touching the DB.
     await asyncio.sleep(5)
 
+    # 1) Wake Postgres via the engine path (the same one request handlers use,
+    #    which reliably triggers Fly autostart) and confirm connectivity before
+    #    migrating — a cold autostart can take a while.
+    reachable = False
+    for attempt in range(1, 21):  # ~5 min of patience for a cold autostart
+        try:
+            async with AsyncSessionLocal() as session:
+                await session.execute(text("SELECT 1"))
+            reachable = True
+            break
+        except Exception as exc:  # noqa: BLE001 — transient boot/connect races
+            logger.info(
+                "demo bootstrap: waiting for Postgres (attempt %d/20): %s",
+                attempt,
+                type(exc).__name__,
+            )
+            await asyncio.sleep(min(2 ** (attempt - 1), 15))
+    if not reachable:
+        logger.warning("demo bootstrap: Postgres never became reachable — skipping")
+        return
+
+    # 2) Apply pending SQL migrations (idempotent). Postgres is up now, so the
+    #    runner's own asyncpg connect succeeds.
     try:
         from app.scripts.run_migrations import main as run_sql_migrations  # noqa: PLC0415
 
@@ -92,12 +122,9 @@ async def _demo_self_heal_bootstrap() -> None:
         logger.warning("demo bootstrap: migration run failed; skipping seed", error=str(exc))
         return
 
-    # Seed only when the canonical replay is absent — meaning the deploy-time
-    # seed was skipped — so routine deploys don't re-purge demo data every boot.
+    # 3) Seed only when the canonical replay is absent — meaning the deploy-time
+    #    seed was skipped — so routine deploys don't re-purge demo data every boot.
     try:
-        from sqlalchemy import select  # noqa: PLC0415
-
-        from app.db.database import AsyncSessionLocal  # noqa: PLC0415
         from app.models.published_replay import PublishedReplay  # noqa: PLC0415
         from app.scripts.seed_demo import CANONICAL_REPLAY_SLUG  # noqa: PLC0415
 
