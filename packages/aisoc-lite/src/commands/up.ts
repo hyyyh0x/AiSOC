@@ -44,6 +44,13 @@ export async function runUp(flags: UpFlags, log: (s: string) => void = console.l
   }
 
   const ref = flags.ref || PINNED_REF;
+  // Constrain --ref to valid git ref characters so it can only ever select a
+  // branch/tag/SHA within the pinned repo's raw path — it can't rewrite the URL
+  // to fetch the compose bundle from an arbitrary host.
+  if (!/^[A-Za-z0-9._/-]+$/.test(ref)) {
+    log(pc.red(`Invalid --ref ${JSON.stringify(ref)}. Expected a branch, tag, or commit SHA.`));
+    return 1;
+  }
   const url = COMPOSE_URL.replace(PINNED_REF, ref);
   log(pc.dim(`Fetching pinned compose bundle (${ref})…`));
 

@@ -35,12 +35,19 @@ export function postureGrade(result: TriageResult): { grade: string; score: numb
   return { grade: coverageGrade(score), score };
 }
 
+// Escape a value for a Markdown table cell: backslashes first (so escape
+// sequences aren't double-processed), then the pipe column delimiter, then
+// collapse newlines that would otherwise break the row.
+function cell(s: string): string {
+  return s.replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
+}
+
 function table(verdicts: AlertVerdict[], limit = 30): string {
   const rows = verdicts
     .slice(0, limit)
     .map(
       (v) =>
-        `| ${VERDICT_EMOJI[v.verdict]} ${v.verdict.replace(/_/g, " ")} | ${Math.round(v.confidence * 100)}% | \`${v.source}\` | ${v.title.replace(/\|/g, "\\|").slice(0, 80)} | ${v.recommendation} |`,
+        `| ${VERDICT_EMOJI[v.verdict]} ${v.verdict.replace(/_/g, " ")} | ${Math.round(v.confidence * 100)}% | \`${cell(v.source)}\` | ${cell(v.title.slice(0, 80))} | ${cell(v.recommendation)} |`,
     )
     .join("\n");
   const extra = verdicts.length > limit ? `\n\n_…and ${verdicts.length - limit} more._` : "";

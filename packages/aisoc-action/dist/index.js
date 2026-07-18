@@ -198,7 +198,8 @@ function getContext() {
   if (eventPath) {
     try {
       const payload = JSON.parse((0, import_node_fs.readFileSync)(eventPath, "utf8"));
-      prNumber = payload.pull_request?.number ?? null;
+      const raw = payload.pull_request?.number;
+      prNumber = typeof raw === "number" && Number.isInteger(raw) && raw > 0 ? raw : null;
     } catch {
       prNumber = null;
     }
@@ -383,9 +384,12 @@ function postureGrade(result) {
   const score = Math.max(0, Math.round(100 - penalty * 10));
   return { grade: coverageGrade(score), score };
 }
+function cell(s) {
+  return s.replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
+}
 function table(verdicts, limit = 30) {
   const rows = verdicts.slice(0, limit).map(
-    (v) => `| ${VERDICT_EMOJI[v.verdict]} ${v.verdict.replace(/_/g, " ")} | ${Math.round(v.confidence * 100)}% | \`${v.source}\` | ${v.title.replace(/\|/g, "\\|").slice(0, 80)} | ${v.recommendation} |`
+    (v) => `| ${VERDICT_EMOJI[v.verdict]} ${v.verdict.replace(/_/g, " ")} | ${Math.round(v.confidence * 100)}% | \`${cell(v.source)}\` | ${cell(v.title.slice(0, 80))} | ${cell(v.recommendation)} |`
   ).join("\n");
   const extra = verdicts.length > limit ? `
 
