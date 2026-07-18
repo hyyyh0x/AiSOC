@@ -71,23 +71,22 @@ async def _demo_self_heal_bootstrap() -> None:
     """Best-effort schema + seed bootstrap for the hosted demo, run in the background.
 
     The demo's Fly Postgres autostops, so the deploy-time ``release_command`` VM
-    frequently can't reach it — new migrations stay unapplied and the demo goes
+    frequently can't reach it — new tables stay uncreated and the demo goes
     unseeded (e.g. ``/r/demo-lockbit`` 500s on a missing ``published_replays``
-    table). The always-warm API VM can reach Postgres, but only its request /
-    SQLAlchemy-engine path reliably triggers the Fly autostart — a bare
-    ``asyncpg`` connect at boot can race the cold start and give up (and
-    run_migrations soft-fails silently on the demo, AISOC_MIGRATIONS_REQUIRED=0,
-    so that race would leave the schema stale without surfacing an error). So we
-    first wake Postgres through the engine (retrying generously), then (re)apply
-    pending SQL migrations and — only if the canonical replay is missing — run
-    the idempotent demo seed. Detached from boot so it never blocks readiness;
-    every failure is logged and swallowed.
+    table). Critically, only the request / SQLAlchemy-**engine** path reliably
+    reaches the demo Postgres (its ingress traffic triggers Fly autostart); a
+    bare ``asyncpg`` connect (what ``run_migrations`` uses) is unreliable here,
+    which is why the release_command never applied 045. So we do everything
+    through the engine: periodically create any missing ORM tables (``checkfirst``
+    skips existing ones) and, when the canonical replay is absent, run the
+    idempotent demo seed — retrying for a while so it lands whenever Postgres
+    becomes reachable. Detached from boot so it never blocks readiness; every
+    failure is logged and swallowed.
     """
     from sqlalchemy import select, text  # noqa: PLC0415
 
     from app.db.database import AsyncSessionLocal  # noqa: PLC0415
     from app.models.published_replay import PublishedReplay  # noqa: PLC0415
-    from app.scripts.run_migrations import main as run_sql_migrations  # noqa: PLC0415
     from app.scripts.seed_demo import CANONICAL_REPLAY_SLUG, _run_full_seed  # noqa: PLC0415
 
     # Give readiness a moment to flip before we start touching the DB.
@@ -113,11 +112,17 @@ async def _demo_self_heal_bootstrap() -> None:
             logger.info("demo bootstrap: schema not ready (attempt %d/40): %s", attempt, type(exc).__name__)
 
         try:
-            await run_sql_migrations()
+            # Create any missing ORM tables (incl. published_replays) via the
+            # ENGINE — the path that reliably reaches the demo's Fly Postgres.
+            # checkfirst (create_all default) skips existing tables, so this only
+            # fills the gap the soft-failed migration left. Then seed the
+            # canonical replay + demo data through the same engine-backed session.
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
             await _run_full_seed()
-            logger.info("demo bootstrap: migrate + seed pass complete (attempt %d)", attempt)
-        except Exception as exc:  # noqa: BLE001 — Postgres likely still cold; retry next tick
-            logger.info("demo bootstrap: migrate+seed deferred (attempt %d/40): %s", attempt, type(exc).__name__)
+            logger.info("demo bootstrap: create_all + seed pass complete (attempt %d)", attempt)
+        except Exception as exc:  # noqa: BLE001 — Postgres likely still waking; retry next tick
+            logger.info("demo bootstrap: create_all+seed deferred (attempt %d/40): %s", attempt, type(exc).__name__)
 
         await asyncio.sleep(45)
 
