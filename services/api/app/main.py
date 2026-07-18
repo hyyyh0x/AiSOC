@@ -102,9 +102,7 @@ async def _demo_self_heal_bootstrap() -> None:
         from app.scripts.seed_demo import CANONICAL_REPLAY_SLUG  # noqa: PLC0415
 
         async with AsyncSessionLocal() as session:
-            already_seeded = await session.scalar(
-                select(PublishedReplay.id).where(PublishedReplay.slug == CANONICAL_REPLAY_SLUG)
-            )
+            already_seeded = await session.scalar(select(PublishedReplay.id).where(PublishedReplay.slug == CANONICAL_REPLAY_SLUG))
         if already_seeded:
             logger.info("demo bootstrap: canonical replay present — seed not needed")
             return
@@ -175,9 +173,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # synchronous path (local Postgres, no seed).
     demo_bootstrap_task: asyncio.Task | None = None
     if settings.AISOC_DEMO_MODE:
-        demo_bootstrap_task = asyncio.create_task(
-            _demo_self_heal_bootstrap(), name="demo_bootstrap"
-        )
+        demo_bootstrap_task = asyncio.create_task(_demo_self_heal_bootstrap(), name="demo_bootstrap")
         logger.info("demo self-heal bootstrap scheduled")
     elif settings.is_dev:
         try:
