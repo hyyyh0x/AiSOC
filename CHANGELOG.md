@@ -280,6 +280,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   steps, and surfaces stage-tagged errors on `/health`; (3) demo-mode middleware
   allowlists `POST /api/v1/waitlist/signup` so the managed-instance conversion
   funnel on tryaisoc.com is no longer 403ed for every visitor.
+- **Demo bootstrap `create_all` AttributeError (QA follow-up).** After Fly Postgres
+  was restarted, `/health` still reported `create_all:AttributeError` because
+  `AsyncConnection.execution_options(...)` is a coroutine and was chained into
+  `.run_sync` without `await`. Await the options object first; pin in
+  `test_database_pool.py`. Unblocks `published_replays` create + `/r/demo-lockbit`.
+- **Canonical `/r/demo-lockbit` missing after re-seed short-circuit.** When
+  INC-RT-* cases already exist, `_seed_in_flight_investigation` returned early
+  and never created `published_replays`. Now that path still ensures the
+  canonical replay; bootstrap only marks `done` after verifying the slug.
 
 
 - **Out-of-the-box 500 from schema drift on migration-bootstrapped installs (#492).**

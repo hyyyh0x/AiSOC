@@ -193,17 +193,22 @@ async def _demo_self_heal_bootstrap() -> None:
             logger.info("demo bootstrap: schema not ready (attempt %d/40): %s", attempt, type(exc).__name__)
             await _invalidate_stale_db_pool(f"probe:{type(exc).__name__}")
 
-        # ── Step A: create missing ORM tables (AUTOCOMMIT — not one giant txn)
+        # ── Step A: create missing ORM tables (AUTOCOMMIT — not one giant txn).
+        # SQLAlchemy's AsyncConnection.execution_options is a coroutine; it must
+        # be awaited before calling run_sync (chaining without await raises
+        # AttributeError: 'coroutine' object has no attribute 'run_sync').
         try:
             async with engine.connect() as conn:
-                await conn.execution_options(isolation_level="AUTOCOMMIT").run_sync(Base.metadata.create_all)
+                conn = await conn.execution_options(isolation_level="AUTOCOMMIT")
+                await conn.run_sync(Base.metadata.create_all)
             _DEMO_BOOTSTRAP_STATUS["table_present"] = True
         except Exception as exc:  # noqa: BLE001 — Postgres likely still waking
             _DEMO_BOOTSTRAP_STATUS["last_error_type"] = f"create_all:{type(exc).__name__}"
             logger.info(
-                "demo bootstrap: create_all deferred (attempt %d/40): %s",
+                "demo bootstrap: create_all deferred (attempt %d/40): %s (%s)",
                 attempt,
                 type(exc).__name__,
+                str(exc)[:200],
             )
             await _invalidate_stale_db_pool(f"create_all:{type(exc).__name__}")
             await asyncio.sleep(15)
@@ -226,9 +231,6 @@ async def _demo_self_heal_bootstrap() -> None:
         # ── Step C: idempotent full seed ─────────────────────────────────────
         try:
             await _run_full_seed()
-            _DEMO_BOOTSTRAP_STATUS.update(seeded=True, done=True, last_error_type=None)
-            logger.info("demo bootstrap: create_all + seed pass complete (attempt %d)", attempt)
-            return
         except Exception as exc:  # noqa: BLE001 — Postgres likely still waking; retry next tick
             _DEMO_BOOTSTRAP_STATUS["last_error_type"] = f"seed:{type(exc).__name__}"
             logger.info(
@@ -237,6 +239,27 @@ async def _demo_self_heal_bootstrap() -> None:
                 type(exc).__name__,
             )
             await _invalidate_stale_db_pool(f"seed:{type(exc).__name__}")
+            await asyncio.sleep(30)
+            continue
+
+        # Seed may short-circuit on existing cases without creating the
+        # canonical replay — only mark done when the slug is actually present.
+        try:
+            async with AsyncSessionLocal() as session:
+                seeded = await session.scalar(select(PublishedReplay.id).where(PublishedReplay.slug == CANONICAL_REPLAY_SLUG))
+            if seeded:
+                _DEMO_BOOTSTRAP_STATUS.update(seeded=True, done=True, last_error_type=None)
+                logger.info("demo bootstrap: create_all + seed pass complete (attempt %d)", attempt)
+                return
+            _DEMO_BOOTSTRAP_STATUS["last_error_type"] = "seed:canonical_replay_missing"
+            logger.info(
+                "demo bootstrap: seed ran but %s still missing (attempt %d/40)",
+                CANONICAL_REPLAY_SLUG,
+                attempt,
+            )
+        except Exception as exc:  # noqa: BLE001
+            _DEMO_BOOTSTRAP_STATUS["last_error_type"] = f"seed-verify:{type(exc).__name__}"
+            await _invalidate_stale_db_pool(f"seed-verify:{type(exc).__name__}")
 
         await asyncio.sleep(30)
 
