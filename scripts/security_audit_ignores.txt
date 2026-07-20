@@ -114,3 +114,12 @@ python|GHSA-qh6h-p6c9-ff54|langchain-core prompts.loading path traversal (fixed 
 # image_url), so no untrusted image URL ever reaches it.
 python|PYSEC-2026-2562|langchain-core SSRF in ChatOpenAI.get_num_tokens_from_messages (low; fixed in 1.2.11); requires langchain 0.3 → 1.x major bump, method unused in codebase; tracked with langchain migration PR|2026-10-11
 python|GHSA-2g6r-c272-w58r|langchain-core SSRF in ChatOpenAI.get_num_tokens_from_messages (low; fixed in 1.2.11); requires langchain 0.3 → 1.x major bump, method unused in codebase; tracked with langchain migration PR|2026-10-11
+
+# websocket-driver DoS (freshly disclosed) reaches the tree only via
+# apps/docs → webpack-dev-server 5.2.3 → sockjs → websocket-driver. It is a
+# dev-server-only transitive dependency of the Docusaurus docs site: it never
+# runs in production, is never exposed to untrusted network input in CI, and
+# webpack-dev-server 5.x (the latest major) still resolves the vulnerable
+# version — no non-breaking fix exists. Tracked for the next webpack-dev-server
+# upgrade.
+pnpm|GHSA-xv26-6w52-cph6|websocket-driver DoS via apps/docs webpack-dev-server (dev-server only, not shipped/prod-exposed); no fix in webpack-dev-server 5.x line|2026-10-15

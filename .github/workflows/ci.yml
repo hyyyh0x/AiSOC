@@ -334,6 +334,8 @@ jobs:
             tests/test_llm_ops.py \
             tests/test_fused_alert_worker.py \
             tests/test_business_context_hotpath.py \
+            tests/test_swarm.py \
+            tests/test_swarm_vs_single.py \
             -v --tb=short
       - name: Gate the public benchmark scoreboard (Phase E1)
         # Ties apps/docs/static/data/scoreboard.json to a real deterministic
@@ -383,7 +385,7 @@ jobs:
         # archives normalized events into the ClickHouse event lake.
         # pyyaml: required since Phase A2 — the detection-matcher parity test
         # loads the canonical scripts/generate_detections.py (imports yaml).
-        run: pip install --quiet pydantic pydantic-settings pytest pytest-asyncio structlog redis aioredis fastapi httpx aiokafka asyncpg clickhouse-driver pyyaml
+        run: pip install --quiet pydantic pydantic-settings pytest pytest-asyncio structlog redis aioredis fastapi httpx aiokafka asyncpg clickhouse-driver pyyaml cryptography
       - name: Install pytest-cov (Phase 2.2 coverage gate)
         run: pip install --quiet 'pytest-cov>=4,<7'
       # Phase 2.2 — every wave-1 service now has a measured coverage
@@ -458,6 +460,7 @@ jobs:
         service:
           - actions
           - connectors
+          - mesh
           - osquery-tls
           - slack-bot
           - teams-bot

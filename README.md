@@ -31,7 +31,14 @@ An open-source, self-hostable AI SOC. The agent's prompts, tool calls, and ratio
 
 ## Try AiSOC in 60 seconds
 
-Four fastest paths to a working AiSOC investigation. Pick whichever matches what you already have on your machine:
+One command — no clone, no Docker, no keys (`npx aisoc` lands on npm with the v8.0 launch; today it builds from [`packages/aisoc-lite/`](packages/aisoc-lite/)):
+
+```bash
+npx aisoc triage --demo
+# ✓ AiSOC triaged 200 alerts: 12 TP, 171 FP suppressed (85.5% noise), 17 need review — in 0.1s
+```
+
+The wedge CLI scores a batch of alerts to verdicts (escalate / review / suppress) with a deterministic engine ported from the production triage scorer — zero LLM key required. Or pick whichever path matches what you already have on your machine:
 
 | If you have…                          | Run this                                                                                                 | What you get                                                                                       |
 |---------------------------------------|----------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------|
@@ -171,10 +178,10 @@ A handful of headline capabilities — the rest are catalogued in [`apps/docs/do
 - **End-to-end SIEM spine** — a cold `docker compose up` ingests connector data → lands it in the ClickHouse event lake → the executable detection corpus (947 rules) fires on the live stream → a fused alert is created, all asserted by an extended integration gate. [`apps/docs/docs/architecture.md`](apps/docs/docs/architecture.md).
 - **Autonomous triage + governed response** — every fused alert is auto-triaged by the agent (copilot/read-only by default); approved actions execute against real connector credentials through a per-action, blast-radius-scoped autonomy policy with real rollback + post-action verification. [`apps/docs/docs/concepts/automation-maturity.md`](apps/docs/docs/concepts/automation-maturity.md).
 - **Advanced Data Explorer** — one investigation surface (NL + SQL over the lake, plus pivots to identity/graph/intel), replacing the SIEM context-switch. `/explore`.
-- **Investigation Rail + replayable Investigation Ledger** — every prompt, tool call, evidence chip, and rationale stored against a case, replayable in the UI. [`apps/docs/docs/console/investigation-rail.md`](apps/docs/docs/console/investigation-rail.md).
+- **Investigation Rail + replayable Investigation Ledger** — every prompt, tool call, evidence chip, and rationale stored against a case, replayable in the UI and shareable as a redacted public permalink ([live demo replay](https://tryaisoc.com/r/demo-lockbit)). [`apps/docs/docs/console/investigation-rail.md`](apps/docs/docs/console/investigation-rail.md).
 - **Detection-as-Code lifecycle** — propose → review → eval-gate → promote; CI rejects any candidate that fails its own positive/negative fixtures (the non-circular gate) or regresses MITRE accuracy. [`apps/docs/docs/concepts/detections.md`](apps/docs/docs/concepts/detections.md) — and the 869 native rules live in [`detections/`](detections/).
 - **Three-model AI** — Semantic (graph-at-ingest), Behavioral (UEBA fused into alert scoring), and Knowledge (LLM), with fuse-time attack-chain grouping so related alerts auto-collapse into one ordered incident.
-- **Hunt-as-Code** — YAML hypotheses with MITRE tags, cron schedules, and natural-language `/hunt` workbench. [`hunts/`](hunts/) + [`apps/docs/docs/console/rule-tuning.md`](apps/docs/docs/console/rule-tuning.md).
+- **Hunt-as-Code** — YAML hypotheses with MITRE tags, cron schedules, and natural-language `/hunt` workbench. [`hunts/`](hunts/) + [`apps/docs/docs/console/rule-tuning.md`](apps/docs/docs/console/rule-tuning.md). Plus free, login-free [browser tools](https://tryaisoc.com/tools): a Sigma/SPL/KQL/ES&#124;QL rule translator, an ATT&CK coverage grader, NL→Sigma, and a noise calculator.
 - **Public weekly benchmark scoreboard** — the same harness that gates PRs; the deterministic-tier row is CI-gated for freshness on every PR, and the funded weekly job appends live-LLM rows. [`apps/docs/docs/benchmark-scoreboard.mdx`](apps/docs/docs/benchmark-scoreboard.mdx).
 
 ---
@@ -196,6 +203,8 @@ Three contribution surfaces; each is one file plus optional fixtures, and CI val
 - **Playbook.** Drop a YAML under [`playbooks/`](playbooks/); [`validate-playbooks`](https://github.com/beenuar/AiSOC/actions/workflows/validate-playbooks.yml) gates the PR. Schema: [`playbook.schema.json`](playbook.schema.json).
 
 Plugin and detection SDK (Python · TypeScript · Go) — see [`apps/docs/docs/plugins/overview.md`](apps/docs/docs/plugins/overview.md). The CLI (`aisoc-cli`) is in [`packages/aisoc-cli/`](packages/aisoc-cli/); PyPI publish lands in v8.0.
+
+**In your CI:** add `- uses: beenuar/aisoc-action@v1` to triage your repo's Dependabot / CodeQL / secret-scanning alerts on every PR (deterministic, nothing leaves your runner; dogfooded on this repo, Marketplace publish lands with v8.0). [Docs](apps/docs/docs/integrations/github-action.md).
 
 ---
 

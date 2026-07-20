@@ -100,6 +100,7 @@ class DetectionEngine:
                 if isinstance(parsed, dict):
                     return parsed
             except (ValueError, TypeError):
+                # Malformed raw_data JSON — fall through to the OCSF top level below.
                 pass
         # Fall back to the OCSF top level (some connectors emit flat OCSF).
         return ocsf if isinstance(ocsf, dict) else {}
